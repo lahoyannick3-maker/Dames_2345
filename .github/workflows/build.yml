@@ -30,7 +30,7 @@ jobs:
         run: npx cap add android
 
       - name: Générer l'icône Android depuis assets/icon.png
-        run: npx @capacitor/assets generate --android
+        run: npx @capacitor/assets generate --android --splashBackgroundColor '#0F0C29' --splashBackgroundColorDark '#0F0C29'
 
       - name: Synchroniser Capacitor (copie www/ + plugins natifs)
         run: npx cap sync android
