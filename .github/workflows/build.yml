@@ -1,1 +1,48 @@
-rt
+name: Build APK - Dame Gameplay
+
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout du code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Setup Java
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '17'
+
+      - name: Installer les dépendances npm
+        run: npm install
+
+      - name: Ajouter la plateforme Android
+        run: npx cap add android
+
+      - name: Générer l'icône Android depuis assets/icon.png
+        run: npx @capacitor/assets generate --android
+
+      - name: Synchroniser Capacitor (copie www/ + plugins natifs)
+        run: npx cap sync android
+
+      - name: Build APK (debug)
+        run: |
+          cd android
+          chmod +x gradlew
+          ./gradlew assembleDebug
+
+      - name: Upload de l'APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: dame-gameplay-apk
+          path: android/app/build/outputs/apk/debug/app-debug.apk
