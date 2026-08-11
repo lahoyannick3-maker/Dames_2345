@@ -1,0 +1,9 @@
+{
+  "appId": "com.lahoyannick3.damegameplay",
+  "appName": "Dame Gameplay",
+  "webDir": "www",
+  "bundledWebRuntime": false,
+  "android": {
+    "allowMixedContent": true
+  }
+}

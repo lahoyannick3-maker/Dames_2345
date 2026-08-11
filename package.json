@@ -1,0 +1,19 @@
+{
+  "name": "dame-gameplay",
+  "version": "1.0.0",
+  "private": true,
+  "description": "Jeu de dames 3D - Capacitor Android build",
+  "scripts": {
+    "sync": "cap sync android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^6.1.2",
+    "@capacitor/app": "^6.0.1",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/haptics": "^6.0.1"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^6.1.2",
+    "@capacitor/assets": "^3.0.5"
+  }
+}
