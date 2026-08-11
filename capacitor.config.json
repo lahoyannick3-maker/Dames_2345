@@ -5,5 +5,10 @@
   "bundledWebRuntime": false,
   "android": {
     "allowMixedContent": true
+  },
+  "plugins": {
+    "SplashScreen": {
+      "backgroundColor": "#0F0C29"
+    }
   }
 }
