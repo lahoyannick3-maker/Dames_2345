@@ -1,1 +1,2046 @@
-rt
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>Dame Gameplay </title>
+<style>
+* {   -webkit-tap-highlight-color: transparent;   -webkit-touch-callout: none; }
+body { margin: 0; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
+    
+    #splashScreen {
+    position: fixed; top: 0; left: 0; width: 100%; height: 100%;
+    background: #0f0c29; /* Fond sombre uni et élégant */
+    z-index: 9999; /* Par-dessus tout le reste */
+    display: flex; flex-direction: column; align-items: center; justify-content: center;
+    transition: opacity 0.8s ease, visibility 0.8s;
+    will-change: opacity;
+    transform: translateZ(0);
+    backface-visibility: hidden;
+}
+
+/* Style du Logo Minimaliste Corrigé */
+.splash-logo {
+    font-size: 8vw; /* Taille fluide : s'adapte à la largeur de l'écran */
+    font-weight: bold; 
+    letter-spacing: 2px; 
+    margin-bottom: 30px;
+    display: flex; 
+    justify-content: center;
+    align-items: center;
+    gap: 8px;
+    max-width: 90%; /* Empêche de coller aux bords */
+    text-align: center;
+}
+
+/* Sur les grands écrans (ordinateurs), on bloque la taille pour éviter qu'elle devienne géante */
+@media (min-width: 600px) {
+    .splash-logo {
+        font-size: 3.5em;
+        letter-spacing: 4px;
+    }
+}
+
+
+/* Animations d'apparition des mots en cascade */
+.splash-logo span { opacity: 0; animation: fadeInWord 0.6s forwards; }
+.splash-logo .word1 { color: #FF8C00; animation-delay: 0.2s; }
+.splash-logo .word2 { color: #FFFFFF; animation-delay: 0.5s; }
+.splash-logo .word3 { color: #008000; animation-delay: 0.8s; }
+
+/* Barre de chargement fine et épurée */
+.splash-loader {
+    width: 150px; height: 3px; background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px; overflow: hidden;
+}
+
+.loader-bar {
+    width: 0%; height: 100%; background: linear-gradient(90deg, #FF8C00, #008000);
+    animation: loadProgress 1.8s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+/* Keyframes Animations */
+@keyframes fadeInWord {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes loadProgress {
+    0% { width: 0%; }
+    100% { width: 100%; }
+}
+
+/* Classe de disparition */
+.splash-hidden { opacity: 0; visibility: hidden; }
+
+/* ===========================
+   MENU PRINCIPAL MODERNE
+   =========================== */
+#menuPrincipal {
+    position: fixed;
+    inset: 0;
+    z-index: 2000;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background: radial-gradient(circle at 50% 20%, #1e2640 0%, #0c0f17 60%, #05060a 100%);
+    opacity: 0;
+    visibility: hidden;
+    transition: none; /* Fondu désactivé : passage accueil/jeu instantané (test anti-saccade) */
+    overflow-y: auto;
+    padding: 20px 12px;
+}
+
+#menuPrincipal.menu-visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+/* 1. On réduit légèrement le padding horizontal de la carte pour libérer de la largeur */
+.menu-card {
+    width: min(100%, 390px);
+    padding: 32px 22px; /* Passe de 22px à 12px sur les côtés */
+    border-radius: 32px;
+    background: rgba(20, 18, 35, 0.55);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 
+        0 30px 60px -12px rgba(0, 0, 0, 0.7),
+        inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    text-align: center;
+    position: relative;
+    box-sizing: border-box;
+    will-change: opacity;
+    transform: translateZ(0);
+}
+
+/* 2. Titre réagrandi grâce à la largeur récupérée */
+.menu-title {
+    margin: 0;
+    font-size: clamp(1.35rem, 6.8vw, 2.5rem); /* Taille mini et idéale augmentées */
+    font-weight: 900;
+    letter-spacing: 0; /* Suppression de l'espacement pour maximiser la taille */
+    line-height: 1.1;
+    white-space: nowrap;
+    text-align: center;
+    width: 100%;
+    box-sizing: border-box;
+    text-shadow:
+        0 4px 10px rgba(0,0,0,.55),
+        0 0 25px rgba(255,255,255,.08);
+}
+
+.menu-title span {
+    display: inline;
+}
+
+/* 3. Sous-titre ajusté pour rester strictement sous la largeur du titre */
+.menu-subtitle {
+    margin: 8px 0 24px;
+    color: rgba(255, 255, 255, 0.65);
+    font-size: clamp(0.7rem, 3.2vw, 0.85rem); /* Taille réactive */
+    font-weight: 600;
+    letter-spacing: 0.5px; /* Réduit de 1.5px à 0.5px pour éviter le débordement */
+    text-transform: uppercase;
+    white-space: nowrap;
+}
+
+
+.menu-separator {
+    display: flex;
+    align-items: center;
+    margin: 20px 0 14px;
+    color: rgba(255, 255, 255, 0.4);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 2.5px;
+    text-transform: uppercase;
+}
+
+.menu-separator::before,
+.menu-separator::after {
+    content: "";
+    flex: 1;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.15), transparent);
+}
+
+.menu-separator span {
+    padding: 0 12px;
+}
+
+.ai-grid {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+}
+
+.btn-menu {
+    width: 100%;
+    padding: 12px 15px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 20px;
+    color: #ffffff;
+    font-size: 0.95rem;
+    font-weight: 700;
+    cursor: pointer;
+    display: flex;
+    align-items: center;
+    justify-content: flex-start;
+    gap: 14px;
+    position: relative;
+    overflow: hidden;
+    transition: transform 0.2s ease, filter 0.2s ease, box-shadow 0.2s ease;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.25);
+    box-sizing: border-box;
+}
+
+.btn-menu .btn-icon {
+    font-size: 1.2rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 34px;
+    height: 34px;
+    background: rgba(255, 255, 255, 0.15);
+    border-radius: 12px;
+    flex-shrink: 0;
+    box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.2);
+}
+
+.btn-menu:hover {
+    transform: translateY(-2px);
+    filter: brightness(1.15);
+    box-shadow: 0 10px 25px rgba(0, 0, 0, 0.4);
+}
+
+.btn-menu:active {
+    transform: scale(0.98);
+}
+
+/* Couleurs en Dégradés Glossy */
+.btn-human {
+    background: linear-gradient(135deg, #0052d4, #4364f7);
+    border-color: rgba(67, 100, 247, 0.4);
+}
+
+.btn-human .btn-icon {
+    filter: brightness(0) invert(1); /* Transforme n'importe quel émoji/icône en blanc pur */
+    opacity: 0.9; /* Optionnel : pour un blanc doux */
+}
+
+
+
+.btn-faible {
+    background: linear-gradient(135deg, #059669, #10b981);
+    border-color: rgba(16, 185, 129, 0.4);
+}
+
+.btn-moyen {
+    background: linear-gradient(135deg, #d97706, #f59e0b);
+    border-color: rgba(245, 158, 11, 0.4);
+}
+
+.btn-normal {
+    background: linear-gradient(135deg, #ea580c, #f97316);
+    border-color: rgba(249, 115, 22, 0.4);
+}
+
+.btn-expert {
+    background: linear-gradient(135deg, #dc2626, #ef4444);
+    border-color: rgba(239, 68, 68, 0.4);
+}
+
+.menu-settings {
+    margin-top: 24px;
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 22px;
+    border-radius: 100px;
+    font-size: 0.85rem;
+    font-weight: 700;
+    color: rgba(255, 255, 255, 0.7);
+    background: rgba(255, 255, 255, 0.05);
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    cursor: pointer;
+    transition: all 0.25s ease;
+}
+
+.menu-settings:hover {
+    color: #ffffff;
+    background: rgba(255, 255, 255, 0.12);
+    transform: translateY(-1px);
+}
+
+/* ===========================
+   ECRAN PARAMETRES / AVATARS
+   =========================== */
+#ecranParametres {
+    position: fixed;
+    inset: 0;
+    z-index: 2500;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start;
+    background: radial-gradient(circle at 50% 20%, #1e2640 0%, #0c0f17 60%, #05060a 100%);
+    opacity: 0;
+    visibility: hidden;
+    transition: none; /* Affichage instantané : évite de voir le plateau derrière pendant le fondu */
+    overflow-y: auto;
+    padding: 24px 12px 40px;
+}
+#ecranParametres.parametres-visible {
+    opacity: 1;
+    visibility: visible;
+}
+
+.parametres-card {
+    width: min(100%, 420px);
+    padding: 26px 20px 30px;
+    border-radius: 28px;
+    background: rgba(20, 18, 35, 0.55);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    box-shadow: 0 30px 60px -12px rgba(0, 0, 0, 0.7), inset 0 1px 0 rgba(255, 255, 255, 0.2);
+    box-sizing: border-box;
+    color: white;
+}
+
+.parametres-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 20px;
+}
+.parametres-titre {
+    font-size: 1.3rem;
+    font-weight: 900;
+    margin: 0;
+}
+.btn-retour-parametres {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.06);
+    color: white;
+    font-size: 1.1em;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+}
+.btn-retour-parametres:active { transform: scale(0.92); }
+
+.profil-bloc {
+    border: 1px solid rgba(255,255,255,0.1);
+    border-radius: 20px;
+    padding: 16px;
+    margin-bottom: 18px;
+    background: rgba(255,255,255,0.02);
+}
+.profil-titre {
+    font-size: 0.95rem;
+    font-weight: 700;
+    margin-bottom: 12px;
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.profil-apercu {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    margin-bottom: 14px;
+}
+.profil-apercu-avatar {
+    width: 56px; height: 56px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.5em;
+    font-weight: 800;
+    flex-shrink: 0;
+    border: 1px solid rgba(255,255,255,0.2);
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+}
+
+.type-toggle {
+    display: flex;
+    gap: 8px;
+    flex: 1;
+}
+.type-toggle button {
+    flex: 1;
+    padding: 8px 10px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.05);
+    color: rgba(255,255,255,0.7);
+    font-size: 0.8rem;
+    font-weight: 700;
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.type-toggle button.type-actif {
+    background: rgba(233,69,96,0.25);
+    border-color: #e94560;
+    color: white;
+}
+
+.emoji-grille {
+    display: grid;
+    grid-template-columns: repeat(6, 1fr);
+    gap: 6px;
+    margin-bottom: 14px;
+    width: 100%;
+    box-sizing: border-box;
+}
+.emoji-choix {
+    box-sizing: border-box;
+    width: 100%;
+    aspect-ratio: 1;
+    min-width: 0;
+    border-radius: 10px;
+    border: 1px solid rgba(255,255,255,0.1);
+    background: rgba(255,255,255,0.04);
+    font-size: 1.1em;
+    display: flex; align-items: center; justify-content: center;
+    cursor: pointer;
+    padding: 0;
+}
+.emoji-choix.emoji-actif {
+    border-color: #e94560;
+    background: rgba(233,69,96,0.25);
+}
+
+.initiales-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.05);
+    color: white;
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 14px;
+    text-align: center;
+}
+.initiales-input::placeholder { color: rgba(255,255,255,0.35); text-transform: none; letter-spacing: normal; }
+
+.couleur-grille {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 8px;
+    width: 100%;
+    box-sizing: border-box;
+}
+.couleur-choix {
+    box-sizing: border-box;
+    width: 100%;
+    aspect-ratio: 1;
+    min-width: 0;
+    border-radius: 50%;
+    border: 2px solid transparent;
+    cursor: pointer;
+    padding: 0;
+}
+.couleur-choix.couleur-actif {
+    border-color: white;
+    box-shadow: 0 0 0 2px rgba(233,69,96,0.6);
+}
+
+.parametres-note {
+    font-size: 0.75rem;
+    color: rgba(255,255,255,0.45);
+    text-align: center;
+    margin-top: 4px;
+}
+
+/* ==========================================
+   INTERFACE DE JEU (HUD / UI)
+   ========================================== */
+
+/* Base commune : elements caches par defaut, affiches instantanement quand
+   la partie est active (classe .jeu-actif posee sur <body>). Fondu désactivé
+   (test anti-saccade) : apparition/disparition immédiate. */
+.hud-el {
+    position: fixed;
+    z-index: 15;
+    opacity: 0;
+    visibility: hidden;
+    transition: none;
+    pointer-events: none;
+}
+body.jeu-actif .hud-el {
+    opacity: 1;
+    visibility: visible;
+    pointer-events: auto;
+}
+
+/* Boutons Quitter / Nouvelle partie : empiles en haut a gauche */
+.game-controls {
+    top: 16px;
+    left: 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+}
+.icon-btn {
+    width: 46px; height: 46px;
+    border-radius: 50%;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(20, 18, 40, 0.65);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    color: white;
+    font-size: 1.25em;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+    transition: all 0.25s ease;
+}
+.icon-btn:hover {
+    background: #e94560;
+    border-color: #e94560;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(233,69,96,0.4);
+}
+.icon-btn:active { transform: scale(0.94); }
+
+/* Badges joueurs : avatar + score, places autour du plateau */
+.player-badge {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    background: rgba(20, 18, 40, 0.65);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    border: 1px solid rgba(255,255,255,0.12);
+    border-radius: 50px;
+    padding: 6px 18px 6px 6px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+    transition: box-shadow 0.3s ease, border-color 0.3s ease;
+}
+.player-badge.active-turn {
+    border-color: rgba(233,69,96,0.65);
+    box-shadow: 0 0 0 3px rgba(233,69,96,0.25), 0 8px 20px rgba(0,0,0,0.35);
+}
+.player-badge-top { top: 16px; right: 16px; }
+.player-badge-bottom { bottom: 16px; left: 16px; }
+
+.player-avatar {
+    width: 38px; height: 38px;
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 1.15em;
+    flex-shrink: 0;
+}
+.player-avatar.blanc { background: radial-gradient(circle at 35% 30%, #fff, #cfcfcf); border: 1px solid rgba(0,0,0,0.15); }
+.player-avatar.noir { background: radial-gradient(circle at 35% 30%, #555, #111); border: 1px solid rgba(255,255,255,0.2); }
+
+.player-score {
+    color: white;
+    font-weight: 700;
+    font-size: 1.05em;
+    min-width: 18px;
+    text-align: center;
+}
+
+/* Message central affiche au debut de chaque partie */
+.turn-message-overlay {
+    display: none;
+    position: fixed;
+    top: 0; left: 0; right: 0; bottom: 0;
+    align-items: center;
+    justify-content: center;
+    z-index: 900;
+    pointer-events: none; /* le tap traverse vers le plateau pour fermer le message */
+}
+.turn-message-card {
+    background: rgba(20, 18, 40, 0.18);
+    backdrop-filter: none;
+    -webkit-backdrop-filter: none;
+    border: 1px solid rgba(255,255,255,0.15);
+    border-radius: 24px;
+    padding: 28px 32px;
+    text-align: center;
+    box-shadow: 0 20px 50px rgba(0,0,0,0.35);
+    max-width: min(86vw, 360px);
+    box-sizing: border-box;
+}
+.turn-message-avatar { font-size: 2.4em; margin-bottom: 10px; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6)); }
+.turn-message-text { color: white; font-size: 1.15em; font-weight: 700; margin-bottom: 6px; white-space: normal; line-height: 1.35; text-shadow: 0 2px 8px rgba(0,0,0,0.85), 0 0 16px rgba(0,0,0,0.6); }
+.turn-message-hint { color: rgba(255,255,255,0.75); font-size: 0.78em; text-transform: uppercase; letter-spacing: 1px; text-shadow: 0 2px 6px rgba(0,0,0,0.85); }
+
+.btn-glass {
+    flex: 1;
+    padding: 10px 12px;
+    border-radius: 50px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.06);
+    color: white;
+    font-weight: 600;
+    font-size: 0.8em;
+    cursor: pointer;
+    backdrop-filter: blur(6px);
+    transition: all 0.25s ease;
+    white-space: nowrap;
+}
+.btn-glass:hover {
+    background: #e94560;
+    border-color: #e94560;
+    transform: translateY(-2px);
+    box-shadow: 0 6px 16px rgba(233,69,96,0.4);
+}
+.btn-glass:active { transform: translateY(0) scale(0.96); }
+
+
+h1 { 
+    font-size: 4em; margin-bottom: 50px; text-align: center;
+    text-shadow: 0 0 20px rgba(0,0,0,0.5);
+    letter-spacing: 2px;
+}
+
+#ecranVictoire {
+    display: none; 
+    position: fixed; 
+    top: 0; 
+    left: 0; 
+    width: 100%; 
+    height: 100%; 
+    background: rgba(255, 255, 255, 0.05); 
+    backdrop-filter: blur(10px); 
+    -webkit-backdrop-filter: blur(10px);
+    z-index: 3000;
+    flex-direction: column; 
+    align-items: center; 
+    justify-content: center;
+    color: white;
+    text-align: center;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.btn-victoire {
+    padding: 15px 35px;
+    margin: 10px;
+    border: 1px solid rgba(255, 255, 255, 0.2);
+    border-radius: 50px;
+    font-weight: bold;
+    cursor: pointer;
+    background: rgba(255, 255, 255, 0.1);
+    color: white;
+    backdrop-filter: blur(5px);
+    transition: all 0.3s ease;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.btn-victoire:hover {
+    background: rgba(233, 69, 96, 0.8);
+    border-color: #e94560;
+    transform: translateY(-5px);
+    box-shadow: 0 10px 20px rgba(0,0,0,0.3);
+}
+</style>
+<script src="./three.min.js"></script>
+<script src="./OrbitControls.js"></script>
+</head>
+<body>
+<div id="splashScreen">
+    <div class="splash-logo">
+        <span class="word1">DAME</span>
+        <span class="word2">GAME</span>
+        <span class="word3">PLAY</span>
+    </div>
+    <div class="splash-loader">
+        <div class="loader-bar"></div>
+    </div>
+</div>
+
+<div id="menuPrincipal">
+    <div class="menu-card">
+
+     <h1 class="menu-title">
+    <span style="color:#FF8C00;">DAME</span>
+    <span style="color:#FFFFFF;">GAME</span>
+    <span style="color:#008000;">PLAY</span>
+</h1>
+
+        <div class="menu-subtitle">
+            Le jeu de dames moderne
+        </div>
+
+        <button class="btn-menu btn-human" onclick="demarrerJeu('humain')">
+            <span class="btn-icon">👥</span>
+            <span>Deux joueurs</span>
+        </button>
+
+        <div class="menu-separator">
+            <span>Jouer contre l'IA</span>
+        </div>
+
+        <div class="ai-grid">
+            <button class="btn-menu btn-faible" onclick="demarrerJeu('faible')">
+                <span class="btn-icon">🤖</span>
+                <span>IA Faible</span>
+            </button>
+
+            <button class="btn-menu btn-moyen" onclick="demarrerJeu('moyen')">
+                <span class="btn-icon">🧠</span>
+                <span>IA Moyen</span>
+            </button>
+
+            <button class="btn-menu btn-normal" onclick="demarrerJeu('normal')">
+                <span class="btn-icon">🔥</span>
+                <span>IA Normal</span>
+            </button>
+
+            <button class="btn-menu btn-expert" onclick="demarrerJeu('expert')">
+                <span class="btn-icon">👑</span>
+                <span>IA Expert</span>
+            </button>
+        </div>
+
+        <div class="menu-settings" onclick="ouvrirParametres()">
+            <span>⚙</span> Paramètres
+        </div>
+
+    </div>
+</div>
+
+<div id="ecranParametres">
+    <div class="parametres-card">
+        <div class="parametres-header">
+            <h2 class="parametres-titre">Avatars</h2>
+            <button class="btn-retour-parametres" onclick="fermerParametres()" aria-label="Retour">&#10005;</button>
+        </div>
+
+        <!-- Profil Joueur 1 -->
+        <div class="profil-bloc">
+            <div class="profil-titre">Joueur 1 (Blancs)</div>
+            <div class="profil-apercu">
+                <div class="profil-apercu-avatar" id="apercuJ1Grand"></div>
+                <div class="type-toggle">
+                    <button id="btnTypeEmojiJ1" onclick="changerTypeProfil('j1','emoji')">Emoji</button>
+                    <button id="btnTypeInitialesJ1" onclick="changerTypeProfil('j1','initiales')">Initiales</button>
+                </div>
+            </div>
+            <div id="emojiGrilleJ1" class="emoji-grille"></div>
+            <input id="initialesInputJ1" class="initiales-input" style="display:none;" maxlength="2" placeholder="Ex : JY">
+            <div id="couleurGrilleJ1" class="couleur-grille"></div>
+        </div>
+
+        <!-- Profil Joueur 2 -->
+        <div class="profil-bloc">
+            <div class="profil-titre">Joueur 2 (Noirs)</div>
+            <div class="profil-apercu">
+                <div class="profil-apercu-avatar" id="apercuJ2Grand"></div>
+                <div class="type-toggle">
+                    <button id="btnTypeEmojiJ2" onclick="changerTypeProfil('j2','emoji')">Emoji</button>
+                    <button id="btnTypeInitialesJ2" onclick="changerTypeProfil('j2','initiales')">Initiales</button>
+                </div>
+            </div>
+            <div id="emojiGrilleJ2" class="emoji-grille"></div>
+            <input id="initialesInputJ2" class="initiales-input" style="display:none;" maxlength="2" placeholder="Ex : YL">
+            <div id="couleurGrilleJ2" class="couleur-grille"></div>
+        </div>
+
+        <div class="parametres-note">Joueur 2 sert uniquement en mode 2 joueurs. Contre l'IA, tu joues toujours avec l'avatar Joueur 1.</div>
+    </div>
+</div>
+
+<div id="gameControls" class="hud-el game-controls">
+    <button class="icon-btn" id="btnQuitter" onclick="retourMenu()" title="Quitter" aria-label="Quitter">&#10005;</button>
+    <button class="icon-btn" id="btnNouvellePartie" onclick="resetPartie()" title="Nouvelle partie" aria-label="Nouvelle partie">&#8635;</button>
+</div>
+
+<div id="avatarTopRight" class="hud-el player-badge player-badge-top">
+    <div class="player-avatar noir"><span id="avatarIconTop">&#129302;</span></div>
+    <span class="player-score" id="scoreTop">20</span>
+</div>
+
+<div id="avatarBottomLeft" class="hud-el player-badge player-badge-bottom">
+    <div class="player-avatar blanc"><span id="avatarIconBottom">&#128100;</span></div>
+    <span class="player-score" id="scoreBottom">20</span>
+</div>
+
+<div id="messageDebutTour" class="turn-message-overlay">
+    <div class="turn-message-card">
+        <div class="turn-message-avatar" id="turnMessageIcon">&#9898;</div>
+        <div class="turn-message-text" id="turnMessageText">Ce sont les Blancs qui commencent en premier</div>
+        <div class="turn-message-hint">Touchez l'ecran pour commencer</div>
+    </div>
+</div>
+
+<div id="messageObligatoire" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%); 
+     background:rgba(24, 20, 45, 0.75); color:white; padding:24px 28px; border-radius:18px; 
+     border:1px solid rgba(233,69,96,0.4);
+     backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+     text-align:center; z-index:1000; box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 24px rgba(233,69,96,0.25);
+     max-width: 300px; font-family: 'Segoe UI', sans-serif;">
+    <div style="font-size:2em; margin-bottom:8px;">⚠️</div>
+    <h3 style="margin-top:0; margin-bottom:8px; color:#ff6b81; letter-spacing:0.5px;">Prise obligatoire</h3>
+    <p style="opacity:0.85; font-size:0.95em; margin-bottom:20px;">La règle impose que vous devez capturer un pion adverse.</p>
+    <button onclick="fermerMessageObligatoire()" class="btn-glass" style="width:100%;">
+    Compris
+</button>
+</div>
+
+<div id="ecranVictoire">
+    <h2 id="texteVictoire" style="font-size: 3em; margin-bottom: 30px; text-shadow: 0 0 10px rgba(0,0,0,0.5);">Victoire !</h2>
+    <div style="display: flex; gap: 20px; justify-content: center;">
+        <button onclick="resetPartie()" class="btn-victoire">Rejouer</button>
+        <button onclick="retourMenu()" class="btn-victoire">Accueil</button>
+    </div>
+</div>
+
+<script>
+// ===== CONFIG =====
+const MATRICE_TACTIQUE = [
+    [1.4, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.4],
+    [1.1, 1.3, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.3, 1.1],
+    [1.1, 1.1, 1.3, 1.2, 1.2, 1.2, 1.2, 1.3, 1.1, 1.1],
+    [1.1, 1.1, 1.2, 1.5, 1.4, 1.4, 1.5, 1.2, 1.1, 1.1],
+    [1.1, 1.1, 1.2, 1.4, 1.6, 1.6, 1.4, 1.2, 1.1, 1.1],
+    [1.1, 1.1, 1.2, 1.4, 1.6, 1.6, 1.4, 1.2, 1.1, 1.1],
+    [1.1, 1.1, 1.2, 1.5, 1.4, 1.4, 1.5, 1.2, 1.1, 1.1],
+    [1.1, 1.1, 1.3, 1.2, 1.2, 1.2, 1.2, 1.3, 1.1, 1.1],
+    [1.1, 1.3, 1.1, 1.1, 1.1, 1.1, 1.1, 1.1, 1.3, 1.1],
+    [1.4, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.2, 1.4]
+];
+const SEUIL_ERREUR_PRISE = 6;
+const TAILLE = 10;
+const BLANC = 0xf5f5f5;
+const NOIR = 0x2c2c2c;
+const CASE_BLANC = 0xdcc7a0;
+const CASE_NOIR = 0x7a4e2a;
+const SURBRILLANCE = 0x00ff88;
+const CASE_SELECT = 0x3498db;
+
+let scene, camera, renderer, controls, raycaster, mouse;
+let plateau=[];
+let pions3D = [];
+let pionSelectionne = null;
+let caseSelectionnee = null;
+let coupsPossibles = [];
+let joueurActuel = 'blanc';
+let rafleEnCours = false;
+let modeJeu = 'humain';
+let messageDebutActif = false;
+
+// ==========================================
+// AVATARS PERSONNALISABLES
+// ==========================================
+const PALETTE_COULEURS = [
+    '#e94560', '#f97316', '#f59e0b', '#10b981',
+    '#0ea5e9', '#4364f7', '#8b5cf6', '#ec4899',
+    '#64748b', '#1e293b'
+];
+
+const EMOJIS_DISPONIBLES = [
+    '😀','😎','🙂','🤠','🥳','😺','🐶','🐱',
+    '🐼','🦊','🐸','🦁','🐵','🐧','🦉','🐢',
+    '🐲','🦄','👾','🤖','👑','🎯','🔥','⚡',
+    '🍀','⭐','🎮','⚔️'
+];
+
+// 3 avatars prédéfinis pour l'IA, par mode
+const AVATARS_IA = {
+    faible:  [ {type:'emoji', value:'🐣', couleur:'#10b981'}, {type:'emoji', value:'🐢', couleur:'#0ea5e9'}, {type:'emoji', value:'🙂', couleur:'#64748b'} ],
+    moyen:   [ {type:'emoji', value:'🧠', couleur:'#f59e0b'}, {type:'emoji', value:'🦊', couleur:'#f97316'}, {type:'emoji', value:'🎯', couleur:'#8b5cf6'} ],
+    normal:  [ {type:'emoji', value:'🔥', couleur:'#ea580c'}, {type:'emoji', value:'⚡', couleur:'#f59e0b'}, {type:'emoji', value:'🐺', couleur:'#64748b'} ],
+    expert:  [ {type:'emoji', value:'👑', couleur:'#dc2626'}, {type:'emoji', value:'🐲', couleur:'#8b5cf6'}, {type:'emoji', value:'💀', couleur:'#1e293b'} ]
+};
+
+const PROFIL_DEFAUT_J1 = { type: 'emoji', value: '👤', couleur: '#4364f7' };
+const PROFIL_DEFAUT_J2 = { type: 'emoji', value: '👤', couleur: '#1e293b' };
+
+let profilJ1 = { ...PROFIL_DEFAUT_J1 };
+let profilJ2 = { ...PROFIL_DEFAUT_J2 };
+let avatarIAActuel = AVATARS_IA.faible[0];
+
+function chargerProfils() {
+    try {
+        const j1 = localStorage.getItem('dame_profil_j1');
+        const j2 = localStorage.getItem('dame_profil_j2');
+        if (j1) profilJ1 = JSON.parse(j1);
+        if (j2) profilJ2 = JSON.parse(j2);
+    } catch (e) { /* stockage indisponible, on garde les valeurs par défaut */ }
+}
+
+function sauvegarderProfil(joueur) {
+    try {
+        const profil = (joueur === 'j1') ? profilJ1 : profilJ2;
+        localStorage.setItem('dame_profil_' + joueur, JSON.stringify(profil));
+    } catch (e) { /* stockage indisponible */ }
+}
+
+function appliquerAvatarSurBadge(avatarDiv, iconSpan, profil) {
+    if (!avatarDiv || !iconSpan || !profil) return;
+    avatarDiv.style.background = profil.couleur;
+    avatarDiv.classList.remove('blanc', 'noir');
+    iconSpan.style.fontSize = (profil.type === 'initiales') ? '0.8em' : '';
+    iconSpan.textContent = profil.value;
+}
+
+// ---------- Ecran Paramètres ----------
+function ouvrirParametres() {
+    chargerProfils();
+    construireEcranProfil('j1');
+    construireEcranProfil('j2');
+    document.getElementById('menuPrincipal').classList.remove('menu-visible');
+    document.getElementById('ecranParametres').classList.add('parametres-visible');
+}
+
+function fermerParametres() {
+    document.getElementById('ecranParametres').classList.remove('parametres-visible');
+    document.getElementById('menuPrincipal').classList.add('menu-visible');
+}
+
+function construireEcranProfil(joueur) {
+    const profil = (joueur === 'j1') ? profilJ1 : profilJ2;
+
+    // Grille d'émojis
+    const grilleEmoji = document.getElementById('emojiGrilleJ' + joueur.slice(1));
+    grilleEmoji.innerHTML = '';
+    EMOJIS_DISPONIBLES.forEach(emoji => {
+        const btn = document.createElement('button');
+        btn.className = 'emoji-choix' + ((profil.type === 'emoji' && profil.value === emoji) ? ' emoji-actif' : '');
+        btn.textContent = emoji;
+        btn.onclick = () => { profil.value = emoji; profil.type = 'emoji'; sauvegarderProfil(joueur); construireEcranProfil(joueur); rafraichirBadgesEnJeu(); };
+        grilleEmoji.appendChild(btn);
+    });
+
+    // Grille de couleurs
+    const grilleCouleur = document.getElementById('couleurGrilleJ' + joueur.slice(1));
+    grilleCouleur.innerHTML = '';
+    PALETTE_COULEURS.forEach(couleur => {
+        const btn = document.createElement('button');
+        btn.className = 'couleur-choix' + (profil.couleur === couleur ? ' couleur-actif' : '');
+        btn.style.background = couleur;
+        btn.onclick = () => { profil.couleur = couleur; sauvegarderProfil(joueur); construireEcranProfil(joueur); rafraichirBadgesEnJeu(); };
+        grilleCouleur.appendChild(btn);
+    });
+
+    // Champ initiales
+    const inputInitiales = document.getElementById('initialesInputJ' + joueur.slice(1));
+    inputInitiales.value = (profil.type === 'initiales') ? profil.value : '';
+    inputInitiales.oninput = () => {
+        profil.value = inputInitiales.value.toUpperCase().slice(0, 2);
+        profil.type = 'initiales';
+        sauvegarderProfil(joueur);
+        rafraichirBadgesEnJeu();
+    };
+
+    // Boutons de type Emoji / Initiales
+    const btnEmoji = document.getElementById('btnTypeEmojiJ' + joueur.slice(1));
+    const btnInitiales = document.getElementById('btnTypeInitialesJ' + joueur.slice(1));
+    btnEmoji.className = (profil.type === 'emoji') ? 'type-actif' : '';
+    btnInitiales.className = (profil.type === 'initiales') ? 'type-actif' : '';
+    grilleEmoji.style.display = (profil.type === 'emoji') ? 'grid' : 'none';
+    inputInitiales.style.display = (profil.type === 'initiales') ? 'block' : 'none';
+
+    // Aperçu
+    const apercu = document.getElementById('apercu' + joueur.toUpperCase() + 'Grand');
+    apercu.style.background = profil.couleur;
+    apercu.textContent = profil.value;
+    apercu.style.fontSize = (profil.type === 'initiales') ? '1.1em' : '1.5em';
+}
+
+function changerTypeProfil(joueur, type) {
+    const profil = (joueur === 'j1') ? profilJ1 : profilJ2;
+    profil.type = type;
+    if (type === 'emoji' && !EMOJIS_DISPONIBLES.includes(profil.value)) profil.value = EMOJIS_DISPONIBLES[0];
+    if (type === 'initiales' && profil.value.length > 2) profil.value = profil.value.slice(0, 2);
+    sauvegarderProfil(joueur);
+    construireEcranProfil(joueur);
+    rafraichirBadgesEnJeu();
+}
+
+// Met à jour les badges affichés en jeu si une partie est en cours
+function rafraichirBadgesEnJeu() {
+    if (typeof updateUI === 'function') updateUI();
+}
+let pionQuiRafle = null;
+let compteurErreurs = 0;
+let pionEnMouvement = null;
+let animationEnCours = false;
+let cibleMouvement = { x: 0, z: 0 };
+let jeuInitialise = false;
+let tempsAnimation = 0;
+let tableTransposition = {};
+let couleurHumain = 'blanc'; 
+const vitesseUnitesParSeconde = 12.0; 
+const horloge = new THREE.Clock();
+
+function animer() {
+    requestAnimationFrame(animer);
+    const deltaTime = horloge.getDelta();
+    
+    if (pionEnMouvement) {
+        // Initialiser le suivi du temps propre à ce mouvement si ce n'est pas fait
+        if (pionEnMouvement.userData.tempsEcoule === undefined) {
+            pionEnMouvement.userData.tempsEcoule = 0;
+            // Calculer la distance totale pour adapter la durée (plus c'est loin, plus ça prend un poil plus de temps)
+            let dx = cibleMouvement.x - pionEnMouvement.userData.oldX;
+            let dz = cibleMouvement.z - pionEnMouvement.userData.oldZ;
+            let distance = Math.sqrt(dx * dx + dz * dz);
+            // Durée de l'animation fixe ou proportionnelle (ex: 0.25 seconde par saut)
+            pionEnMouvement.userData.dureeTotale = distance > 1.5 ? 0.40 : 0.25; 
+        }
+
+        // Avancer dans le temps de l'animation
+        pionEnMouvement.userData.tempsEcoule += deltaTime;
+        // Calculer le ratio d'avancement entre 0.0 et 1.0
+        let t = Math.min(pionEnMouvement.userData.tempsEcoule / pionEnMouvement.userData.dureeTotale, 1.0);
+
+        // Lissage du facteur t (Smoothstep) pour un effet de démarrage et freinage en douceur (Ease-in-out)
+        let tLisse = t * t * (3 - 2 * t);
+
+        // Interpolation de la position X et Z (Mouvement fluide au sol)
+        pionEnMouvement.position.x = pionEnMouvement.userData.oldX + (cibleMouvement.x - pionEnMouvement.userData.oldX) * tLisse;
+        pionEnMouvement.position.z = pionEnMouvement.userData.oldZ + (cibleMouvement.z - pionEnMouvement.userData.oldZ) * tLisse;
+
+        // Gestion de la hauteur (Y)
+        if (pionEnMouvement.userData.estUnePrise) {
+            // Parabole parfaite basée sur tLisse pour un arc de cercle parfait lors du saut
+            const hauteurSaut = 0.2; 
+            pionEnMouvement.position.y = 4 * hauteurSaut * tLisse * (1 - tLisse);
+        } else {
+            // Petit effet de glissement ou d'élévation minime pour éviter le clipping avec le plateau
+            pionEnMouvement.position.y = 0.05 * Math.sin(tLisse * Math.PI); 
+        }
+
+        // Quand l'animation en cours arrive à sa fin (t = 1)
+        if (t === 1.0) {
+            pionEnMouvement.position.set(cibleMouvement.x, 0, cibleMouvement.z);
+            const coupInfo = pionEnMouvement.userData.coupEnAttente;
+            
+            // Nettoyage des variables temporaires d'animation
+            delete pionEnMouvement.userData.coupEnAttente;
+            delete pionEnMouvement.userData.estUnePrise;
+            delete pionEnMouvement.userData.tempsEcoule;
+            delete pionEnMouvement.userData.dureeTotale;
+            
+            pionEnMouvement.userData.x = cibleMouvement.x;
+            pionEnMouvement.userData.z = cibleMouvement.z;
+            
+            const pionFinal = pionEnMouvement;
+            pionEnMouvement = null;
+            terminerLogiqueCoup(pionFinal, coupInfo);
+        }
+    }
+    
+    controls.update();
+    renderer.render(scene, camera);
+}
+
+
+function demarrerJeu(mode) {
+    modeJeu = mode;
+
+    // L'IA pioche un nouvel avatar parmi ses 3 presets du mode choisi,
+    // uniquement à ce moment (lancement depuis le menu). Il reste fixe ensuite
+    // même après "Nouvelle partie" ou "Rejouer", jusqu'au prochain passage ici.
+    if (mode !== 'humain' && AVATARS_IA[mode]) {
+        const presets = AVATARS_IA[mode];
+        avatarIAActuel = presets[Math.floor(Math.random() * presets.length)];
+    }
+    
+    // 1. On permute les classes instantanément (le CSS gère le fondu enchaîné de 0.5s)
+    document.getElementById('menuPrincipal').classList.remove('menu-visible');
+    document.body.classList.add('jeu-actif');
+    
+    // 2. On réinitialise la partie et on lance l'animation
+    resetPartie(); 
+    if (!animationEnCours) {
+        animer();
+    }
+}
+
+function retourMenu() {
+    // 1. On cache l'UI du jeu et on réaffiche le menu principal en même temps
+    document.body.classList.remove('jeu-actif');
+    document.getElementById('menuPrincipal').classList.add('menu-visible');
+    
+    // 2. On réinitialise l'état du plateau
+    resetPartie(); 
+}
+
+
+
+function fermerMessageObligatoire() {
+    document.getElementById('messageObligatoire').style.display = 'none';
+    compteurErreurs = 0;
+}
+
+function getMousePosition(event) {
+    const rect = renderer.domElement.getBoundingClientRect();
+    let clientX, clientY;
+    if (event.touches && event.touches.length > 0) {
+        clientX = event.touches[0].clientX; clientY = event.touches[0].clientY;
+    } else {
+        clientX = event.clientX; clientY = event.clientY;
+    }
+    mouse.x = ((clientX - rect.left) / rect.width) * 2 - 1;
+    mouse.y = -((clientY - rect.top) / rect.height) * 2 + 1;
+}
+
+function selectionnerPion(pion) {
+  if (!pion || animationEnCours) return;
+  effacerSurbrillance();
+  
+  let coups = getTousLesCoups(pion.userData.x, pion.userData.z, plateau);
+  const priseObligatoire = aUnePriseDisponible(joueurActuel, plateau);
+  
+  if (priseObligatoire) {
+    coups = coups.filter(c => c.prise);
+    // <-- AJOUT PRISE MAX ICI AUSSI
+    const maxPrises = Math.max(...coups.map(c => c.nbPrises || 0));
+    coups = coups.filter(c => (c.nbPrises || 0) === maxPrises);
+  }
+  
+  if (coups.length === 0) {
+    surlignerErreur(pion);
+    if (priseObligatoire) {
+      compteurErreurs++;
+      if (compteurErreurs >= SEUIL_ERREUR_PRISE) {
+        document.getElementById('messageObligatoire').style.display = 'block';
+      }
+    }
+    return;
+  } else {
+    compteurErreurs = 0;
+    pionSelectionne = pion;
+    if (pionSelectionne.userData.mesh) {
+      pionSelectionne.userData.mesh.material.emissive.setHex(0x00ff00);
+    }
+    surlignerCases(coups); // <-- Surligne après filtre max
+  }
+}
+
+function onResize() {
+    const aspect = window.innerWidth / window.innerHeight;
+    const frustumSize = 12;
+    if (aspect > 1) {
+        camera.left = -frustumSize * aspect / 2; camera.right = frustumSize * aspect / 2;
+        camera.top = frustumSize / 2; camera.bottom = -frustumSize / 2;
+    } else {
+        camera.left = -frustumSize / 2; camera.right = frustumSize / 2;
+        camera.top = (frustumSize / aspect) / 2; camera.bottom = -(frustumSize / aspect) / 2;
+    }
+    
+    // Garder la caméra du bon côté lors d'un redimensionnement ou d'une rotation d'écran
+    if (typeof couleurHumain !== 'undefined' && modeJeu !== 'humain' && couleurHumain === 'noir') {
+        camera.position.set(4.5, 10, -4.5);
+    } else {
+        camera.position.set(4.5, 10, 13.5);
+    }
+    camera.lookAt(4.5, 0, 4.5);
+    if (controls) {
+        controls.target.set(4.5, 0, 4.5);
+        controls.update();
+    }
+
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+}
+
+function onPointerDown(event) {
+    // Le premier tap ferme uniquement le message "au tour de..." sans jouer de coup
+    if (messageDebutActif) { fermerMessageDebut(); return; }
+    const msg = document.getElementById('messageObligatoire');
+    // MODIFICATION : On vérifie si c'est au tour de l'IA (c-à-d si le joueur actuel n'est pas la couleur de l'humain)
+    if ((msg && msg.style.display === 'block') || animationEnCours || (modeJeu !== 'humain' && joueurActuel !== couleurHumain)) return; 
+    getMousePosition(event);
+     raycaster.setFromCamera(mouse, camera);
+    const objetsInteractifs = scene.children.filter(obj => obj.userData.type === 'pion' || obj.userData.type === 'case');
+    const intersects = raycaster.intersectObjects(objetsInteractifs, true);
+
+    if (intersects.length > 0) {
+        let obj = intersects[0].object;
+        while (obj && !obj.userData.type) obj = obj.parent;
+        if (!obj || !obj.userData) return;
+
+        if (obj.userData.type === 'pion') {
+            if (obj.userData.couleur === joueurActuel) {
+                selectionnerPion(obj);
+            } else {
+                pionSelectionne = null; effacerSurbrillance();
+            }
+        } else if (obj.userData.type === 'case') {
+            if (pionSelectionne) {
+                deplacerPion(obj.userData.x, obj.userData.z);
+            } else {
+                effacerSurbrillance();
+            }
+        }
+    } else {
+        pionSelectionne = null; effacerSurbrillance();
+    }
+}
+
+function aUnePriseDisponible(couleur, plat) {
+    for (let x = 0; x < TAILLE; x++) {
+        for (let z = 0; z < TAILLE; z++) {
+            if (plat[x][z] && plat[x][z].couleur === couleur) {
+                const coups = getTousLesCoups(x, z, plat);
+                if (coups.some(c => c.prise)) return true;
+            }
+        }
+    }
+    return false;
+}
+
+function init() {
+    scene = new THREE.Scene();
+    scene.background = new THREE.Color(0x1a1a2e);
+    scene.fog = new THREE.Fog(0x1a1a2e, 15, 30);
+
+    camera = new THREE.OrthographicCamera(1, 1, 1, 1, 0.1, 1000);
+camera.position.set(4.5, 10, 13.5); // Force la caméra du côté des Blancs (en bas) au démarrage
+camera.lookAt(4.5, 0, 4.5);
+    renderer = new THREE.WebGLRenderer({antialias: true});
+    renderer.setSize(window.innerWidth, window.innerHeight);
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+    renderer.shadowMap.enabled = true;
+    renderer.shadowMap.type = THREE.PCFShadowMap;
+    document.body.appendChild(renderer.domElement);
+    renderer.domElement.style.touchAction = 'none';
+
+    controls = new THREE.OrbitControls(camera, renderer.domElement);
+    controls.target.set(4.5, 0, 4.5);
+    controls.enableDamping = true;
+    controls.enableRotate = false;
+    controls.minZoom = 0.65; controls.maxZoom = 2;
+
+    scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+    const dirLight = new THREE.DirectionalLight(0xffffff, 1);
+    dirLight.position.set(5, 15, 5);
+    dirLight.castShadow = true;
+    dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
+    dirLight.shadow.camera.left = -10; dirLight.shadow.camera.right = 10;
+    dirLight.shadow.camera.top = 10; dirLight.shadow.camera.bottom = -10;
+    scene.add(dirLight);
+
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2();
+
+    creerPlateau();
+    placerPions();
+
+    renderer.domElement.addEventListener('pointerdown', onPointerDown, false);
+    window.addEventListener('resize', onResize);
+    onResize();
+}
+
+function creerPion(couleurHex, x, z, estDame = false) {
+    const groupe = new THREE.Group();
+    const couleurStr = couleurHex === BLANC ? 'blanc' : 'noir';
+    const geo = new THREE.CylinderGeometry(0.35, 0.4, 0.25, 32);
+    const mat = new THREE.MeshStandardMaterial({
+        color: couleurHex, roughness: 0.3, metalness: 0.6,
+        emissive: couleurHex, emissiveIntensity: 0.05
+    });
+    const mesh = new THREE.Mesh(geo, mat);
+    mesh.castShadow = true; mesh.position.y = 0.125;
+    groupe.add(mesh);
+
+    // Zone de détection tactile élargie et invisible (couvre presque toute la case),
+    // pour rendre l'appui sur un pion plus réactif/fiable sur petit écran.
+    const hitboxGeo = new THREE.CylinderGeometry(0.46, 0.46, 0.5, 12);
+    const hitboxMat = new THREE.MeshBasicMaterial({ visible: false });
+    const hitbox = new THREE.Mesh(hitboxGeo, hitboxMat);
+    hitbox.position.y = 0.15;
+    groupe.add(hitbox);
+
+    if (estDame) {
+        const couronneGeo = new THREE.TorusGeometry(0.25, 0.08, 16, 32);
+        const couronne = new THREE.Mesh(couronneGeo, mat);
+        couronne.position.y = 0.35; couronne.rotation.x = Math.PI / 2;
+        groupe.add(couronne);
+    }
+
+    groupe.position.set(x, 0, z);
+    groupe.userData = { x, z, couleur: couleurStr, couleurHex, mesh, estDame, type: 'pion' };
+    groupe.updateMatrixWorld(true);
+    scene.add(groupe);
+    return groupe;
+}
+
+function placerPions() {
+    for(let z = 0; z < 4; z++) {
+        for(let x = 0; x < TAILLE; x++) {
+            if ((x + z) % 2 === 1) {
+                plateau[x][z] = {couleur: 'noir', estDame: false};
+                pions3D.push(creerPion(NOIR, x, z));
+            }
+        }
+    }
+    for(let z = 6; z < 10; z++) {
+        for(let x = 0; x < TAILLE; x++) {
+            if ((x + z) % 2 === 1) {
+                plateau[x][z] = {couleur: 'blanc', estDame: false};
+                pions3D.push(creerPion(BLANC, x, z));
+            }
+        }
+    }
+}
+
+function deplacerPion(x, z) {
+  if (!pionSelectionne) return;
+
+  if (rafleEnCours && pionQuiRafle && pionSelectionne !== pionQuiRafle) {
+        surlignerErreur(pionSelectionne);
+        return;
+    }
+  const coupsAutorises = getTousLesCoupsPour(pionSelectionne.userData.couleur, plateau);
+  const priseForceeActive = coupsAutorises.length > 0 && coupsAutorises[0].info.prise;
+
+  function trouverChemin(coups, tx, tz, cheminActuel = []) {
+    for (let c of coups) {
+      let nouveauChemin = [...cheminActuel, c];
+      if (c.x === tx && c.z === tz) return nouveauChemin;
+      if (c.prise && c.chaines) {
+        let found = trouverChemin(c.chaines, tx, tz, nouveauChemin);
+        if (found) return found;
+      }
+    }
+    return null;
+  }
+
+  // <-- AJOUT 2 : Utilise les coups autorisés, pas tous les coups
+  let tousLesCoups = priseForceeActive
+  ? coupsAutorises.filter(c => c.x1 === pionSelectionne.userData.x && c.z1 === pionSelectionne.userData.z).map(c => c.info)
+    : getTousLesCoups(pionSelectionne.userData.x, pionSelectionne.userData.z, plateau);
+
+  // <-- AJOUT 3 : PRISE MAX - version robuste
+  if (priseForceeActive && tousLesCoups.length > 0) {
+    const compterPrises = (coup) => {
+      if (!coup.prise) return 0;
+      if (!coup.chaines || coup.chaines.length === 0) return 1;
+      return 1 + Math.max(...coup.chaines.map(compterPrises));
+    };
+    tousLesCoups.forEach(c => {
+      if (c.nbPrises === undefined) c.nbPrises = compterPrises(c);
+    });
+    const maxPrises = Math.max(...tousLesCoups.map(c => c.nbPrises));
+    tousLesCoups = tousLesCoups.filter(c => c.nbPrises === maxPrises);
+  }
+
+  // <-- ICI : le reste de ton code inchangé
+  const cheminComplet = trouverChemin(tousLesCoups, x, z);
+  if (!cheminComplet) return;
+ pionSelectionne.userData.cheminRestant = cheminComplet;
+    const premierSaut = cheminComplet[0];
+    
+    // On enregistre quel pion est en train de rafler avant de lancer le coup
+    if (premierSaut.prise) {
+        pionQuiRafle = pionSelectionne;
+    }
+
+    jouerCoup(pionSelectionne.userData.x, pionSelectionne.userData.z, premierSaut.x, premierSaut.z, premierSaut);
+    
+    if (cheminComplet.length <= 1) {
+        pionSelectionne = null;
+    }
+    effacerSurbrillance();
+}
+
+function creerPlateau() {
+    const tableGeo = new THREE.BoxGeometry(14, 0.5, 14);
+    const tableMat = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 0.8, metalness: 0.1 });
+    const table = new THREE.Mesh(tableGeo, tableMat);
+    table.position.set(4.5, -0.5, 4.5); table.receiveShadow = true;
+    scene.add(table);
+
+    const plateauGeo = new THREE.BoxGeometry(10.2, 0.3, 10.2);
+    const plateauMat = new THREE.MeshStandardMaterial({ color: 0x5d4037, roughness: 0.6, metalness: 0.2 });
+    const plateauMesh = new THREE.Mesh(plateauGeo, plateauMat);
+    plateauMesh.position.set(4.5, -0.15, 4.5); plateauMesh.receiveShadow = true;
+    scene.add(plateauMesh);
+
+    for(let x = 0; x < TAILLE; x++) {
+        plateau[x] = [];
+        for(let z = 0; z < TAILLE; z++) {
+            const estNoir = (x + z) % 2 === 1;
+            const caseGeo = new THREE.BoxGeometry(0.98, 0.1, 0.98);
+            const caseMat = new THREE.MeshStandardMaterial({
+                color: estNoir? CASE_NOIR : CASE_BLANC, roughness: 0.7, metalness: 0.1
+            });
+            const caseMesh = new THREE.Mesh(caseGeo, caseMat);
+            caseMesh.position.set(x, 0, z);
+            caseMesh.userData = {x, z, type: 'case', estNoir};
+            caseMesh.receiveShadow = true;
+            scene.add(caseMesh);
+            plateau[x][z] = estNoir? 0 : null;
+        }
+    }
+}
+
+function clonerPlateau(plateauOriginal) {
+    return plateauOriginal.map(colonne => 
+        colonne.map(caseVal => {
+            if (caseVal === 0 || caseVal === null) return caseVal;
+            return { couleur: caseVal.couleur, estDame: caseVal.estDame };
+        })
+    );
+}
+
+function getTousLesCoups(x, z, plat) {
+    const pion = plat[x][z];
+    if (!pion || pion === 0) return [];
+    const coups = pion.estDame ? getCoupsDame(x, z, plat) : getCoupsPion(x, z, plat);
+
+    return coups.map(coup => {
+        if (!coup.prise) return {...coup, nbPrises: 0};
+        
+        const plateauTemp = clonerPlateau(plat);
+        plateauTemp[coup.x][coup.z] = plateauTemp[x][z];
+        plateauTemp[x][z] = 0;
+        plateauTemp[coup.pionPris.x][coup.pionPris.z] = 0;
+
+        const autresPrises = getTousLesCoups(coup.x, coup.z, plateauTemp).filter(c => c.prise);
+        
+        return {
+            ...coup, 
+            chaines: autresPrises,
+            nbPrises: 1 + (autresPrises.length ? Math.max(...autresPrises.map(s => s.nbPrises || 0)) : 0)
+        };
+    });
+}
+
+
+function getCoupsPion(x, z, plat) {
+    const pion = plat[x][z];
+    if (!pion || pion === 0) return []; 
+    const dir = pion.couleur === 'blanc'? -1 : 1;
+    const coups = [];
+
+    for (let dx of [-1, 1]) {
+        let nx = x + dx, nz = z + dir;
+        if (dansPlateau(nx, nz) && plat[nx][nz] === 0) {
+            coups.push({x: nx, z: nz, prise: false});
+        }
+    }
+    for (let dx of [-1, 1]) {
+        for (let dz of [-1, 1]) {
+            let nx = x + dx, nz = z + dz;
+            let nx2 = x + 2*dx, nz2 = z + 2*dz;
+            if (dansPlateau(nx2, nz2) && plat[nx2][nz2] === 0 &&
+                plat[nx][nz] && plat[nx][nz] !== 0 &&
+                plat[nx][nz].couleur !== pion.couleur) {
+                coups.push({x: nx2, z: nz2, prise: true, pionPris: {x: nx, z: nz}});
+            }
+        }
+    }
+    return coups;
+}
+
+function getCoupsDame(x, z, plat) {
+    const pion = plat[x][z];
+    const coups = [];
+    const dirs = [[1,1], [1,-1], [-1,1], [-1,-1]];
+
+    for (let [dx, dz] of dirs) {
+        let nx = x + dx, nz = z + dz;
+        let pionRencontre = null;
+        while (dansPlateau(nx, nz)) {
+            if (plat[nx][nz] === 0) {
+                if (!pionRencontre) {
+                    coups.push({x: nx, z: nz, prise: false});
+                } else {
+                    coups.push({x: nx, z: nz, prise: true, pionPris: pionRencontre});
+                }
+            } else if (plat[nx][nz].couleur === pion.couleur) {
+                break;
+            } else {
+                if (pionRencontre) break;
+                pionRencontre = {x: nx, z: nz};
+            }
+            nx += dx; nz += dz;
+        }
+    }
+    return coups;
+}
+
+function jouerCoup(x1, z1, x2, z2, coupInfo) {
+    const pionMesh = pions3D.find(p => p.userData.x === x1 && p.userData.z === z1);
+    if (!pionMesh) return;
+
+    vibrer(coupInfo.prise ? 'heavy' : 'medium');
+
+    animationEnCours = true;
+    pionMesh.userData.oldX = x1; pionMesh.userData.oldZ = z1;
+    pionMesh.userData.estUnePrise = coupInfo.prise; 
+    pionEnMouvement = pionMesh;
+    cibleMouvement = { x: x2, z: z2 };
+    pionEnMouvement.userData.coupEnAttente = coupInfo; 
+}
+
+function terminerLogiqueCoup(pionMesh, coupInfo) {
+    const xOrigine = pionMesh.userData.oldX; const zOrigine = pionMesh.userData.oldZ;
+    const xDest = pionMesh.userData.x; const zDest = pionMesh.userData.z;
+
+    plateau[xDest][zDest] = plateau[xOrigine][zOrigine];
+    plateau[xOrigine][zOrigine] = 0;
+
+    if (coupInfo.prise) {
+        const pionPris = pions3D.find(p => p.userData.x === coupInfo.pionPris.x && p.userData.z === coupInfo.pionPris.z); 
+        if (pionPris) {
+            scene.remove(pionPris);
+            pions3D = pions3D.filter(p => p !== pionPris);
+        }
+        plateau[coupInfo.pionPris.x][coupInfo.pionPris.z] = 0;
+
+        if (pionMesh.userData.cheminRestant) {
+            pionMesh.userData.cheminRestant.shift();
+        }
+        if (pionMesh.userData.cheminRestant && pionMesh.userData.cheminRestant.length > 0) {
+            const suite = pionMesh.userData.cheminRestant[0];
+            rafleEnCours = true; animationEnCours = false; pionSelectionne = pionMesh;
+            setTimeout(() => jouerCoup(xDest, zDest, suite.x, suite.z, suite), 400);
+            return;
+        }
+    }
+
+    if (coupInfo.prise) {
+        const nouvellesPrises = getTousLesCoups(xDest, zDest, plateau).filter(c => c.prise);
+        if (nouvellesPrises.length > 0) {
+            rafleEnCours = true; animationEnCours = false; pionSelectionne = pionMesh;
+            if (modeJeu !== 'humain' && joueurActuel !== couleurHumain) {
+            setTimeout(tourIA, 400);
+            } else {
+                surlignerCases(nouvellesPrises);
+            }
+            updateUI();
+            return;
+        }
+    }
+
+    if ((pionMesh.userData.couleur === 'blanc' && zDest === 0) || (pionMesh.userData.couleur === 'noir' && zDest === 9)) {
+        if (!pionMesh.userData.estDame) {
+            vibrer('medium');
+            plateau[xDest][zDest].estDame = true;
+            scene.remove(pionMesh);
+            pions3D = pions3D.filter(p => p !== pionMesh);
+            const nouveauPion = creerPion(pionMesh.userData.couleurHex, xDest, zDest, true);
+            nouveauPion.userData.couleur = pionMesh.userData.couleur;
+            nouveauPion.userData.couleurHex = pionMesh.userData.couleurHex;
+            nouveauPion.userData.estDame = true;
+            pions3D.push(nouveauPion);
+        }
+    }
+
+    rafleEnCours = false; animationEnCours = false; 
+    checkVictoire();
+    if (jeuInitialise) finDeTour();
+}
+
+function finDeTour() {
+    rafleEnCours = false; pionQuiRafle = null; caseSelectionnee = null;
+    effacerSurbrillance();
+    joueurActuel = (joueurActuel === 'blanc') ? 'noir' : 'blanc';
+    updateUI();
+    if (modeJeu !== 'humain' && joueurActuel !== couleurHumain) {
+        setTimeout(tourIA, 400);
+    }
+}
+
+// ==========================================
+//      LOGIQUE IA STRATÃ‰GIQUE - EXPERT ðŸ”¥
+// ==========================================
+
+function tourIA() { // <-- Plus de paramètre 'e'
+    if (animationEnCours) {
+        setTimeout(tourIA, 200); return; 
+    }
+
+    // Plus de "e.data" ! On utilise directement les variables de ton jeu principal.
+    // (Assure-toi que 'plateau', 'modeJeu' et 'joueurActuel' sont bien accessibles globalement dans ton script)
+    tableTransposition = {};  
+    
+    let coups = getTousLesCoupsPour(joueurActuel, plateau);
+    if (coups.length === 0) {
+        const gagnantStr = (couleurHumain === 'blanc') ? "Victoire des Blancs !" : "Victoire des Noirs !";
+        document.getElementById('texteVictoire').textContent = gagnantStr;
+        document.getElementById('ecranVictoire').style.display = 'flex';
+        return;
+    }
+  
+    let meilleurCoup = coups[0];
+    let profondeurMax = { 'faible': 1, 'moyen': 3, 'normal': 5, 'expert': 7 }[modeJeu];
+
+    if (modeJeu === 'faible' && Math.random() < 0.35 && coups.length > 1) {
+        meilleurCoup = coups[Math.floor(Math.random() * coups.length)];
+    } else {
+        let meilleurScore = -Infinity;
+        // CORRECTION 1 : Tri performant dès le premier niveau basé sur le potentiel de rafle total
+        coups.sort((a, b) => (b.info.nbPrises || 0) - (a.info.nbPrises || 0));
+
+        for (let c of coups) {
+            let platSimule = clonerPlateau(plateau);
+            appliquerCoupSimule(c, platSimule);
+            
+            let encoreDesPrises = c.info.prise && (c.info.nbPrises > 1);
+            let score = minimax(platSimule, profondeurMax - 1, encoreDesPrises, -Infinity, Infinity);
+
+            if (score > meilleurScore) {
+                meilleurScore = score;
+                meilleurCoup = c;
+            }
+        }
+    }
+    
+    // ===== AJOUT : Surlignage de la case de destination avant le mouvement =====
+    animationEnCours = true; 
+    effacerSurbrillance();
+
+    // Trouver l'objet 3D de la case cible pour la colorer en vert
+    const caseCible = scene.children.find(obj => 
+        obj.userData.type === 'case' && 
+        obj.userData.x === meilleurCoup.x2 && 
+        obj.userData.z === meilleurCoup.z2
+    );
+
+    if (caseCible) {
+        caseCible.material.emissive.setHex(SURBRILLANCE);
+    }
+
+    // Attendre 600ms pour que le joueur voie où l'IA va jouer, puis déplacer le pion
+    setTimeout(() => {
+        animationEnCours = false;
+        jouerCoup(meilleurCoup.x1, meilleurCoup.z1, meilleurCoup.x2, meilleurCoup.z2, meilleurCoup.info);
+    }, 600); 
+}
+
+
+function genererClePlateau(plat) {
+    let cle = "";
+    for (let x = 0; x < TAILLE; x++) {
+        for (let z = 0; z < TAILLE; z++) {
+            let p = plat[x][z];
+            if (p && p !== 0) {
+                cle += `${x}${z}${p.couleur[0]}${p.estDame ? 'D' : 'P'}|`;
+            }
+        }
+    }
+    return cle;
+}
+
+
+function evaluerPlateau(plat) {
+    const couleurIA = (couleurHumain === 'blanc') ? 'noir' : 'blanc';
+    let score = 0;
+    let totalPions = 0;
+
+    for (let x = 0; x < TAILLE; x++) {
+        for (let z = 0; z < TAILLE; z++) {
+            if (plat[x][z] && plat[x][z] !== 0) totalPions++;
+        }
+    }
+    const estFinDePartie = totalPions <= 7;
+
+    for (let x = 0; x < TAILLE; x++) {
+        for (let z = 0; z < TAILLE; z++) {
+            let p = plat[x][z];
+            if (!p || p === 0) continue;
+
+            let valeur = 0;
+            if (p.estDame) {
+                valeur = estFinDePartie ? 3800 : 3200;
+                let distCentre = Math.abs(x - 4.5) + Math.abs(z - 4.5);
+                valeur += (9 - distCentre) * 20;
+            } else {
+                valeur = 1000;
+                valeur += MATRICE_TACTIQUE[x][z] * 100;
+                let avance = (p.couleur === 'noir') ? z : (9 - z);
+                valeur += avance * 40;
+            }
+
+            if (x === 0 || x === 9) valeur += 45;
+
+            if (!estFinDePartie) {
+                if (p.couleur === 'noir' && z === 0) valeur += 90;
+                if (p.couleur === 'blanc' && z === 9) valeur += 90;
+            }
+
+            let dir = p.couleur === 'noir' ? -1 : 1;
+            if (dansPlateau(x - 1, z + dir) && plat[x - 1][z + dir] && plat[x - 1][z + dir].couleur === p.couleur) valeur += 25;
+            if (dansPlateau(x + 1, z + dir) && plat[x + 1][z + dir] && plat[x + 1][z + dir].couleur === p.couleur) valeur += 25;
+
+            score += (p.couleur === couleurIA) ? valeur : -valeur;
+        }
+    }
+    return score;
+}
+
+function minimax(plat, profondeur, estMax, alpha, beta) {
+    let clePlateau = genererClePlateau(plat);
+    if (tableTransposition[clePlateau] !== undefined && tableTransposition[clePlateau].profondeur >= profondeur) {
+        return tableTransposition[clePlateau].score;
+    }
+
+    if (profondeur <= 0) return quiescence(plat, alpha, beta, estMax);
+
+    const couleurIA = (couleurHumain === 'blanc') ? 'noir' : 'blanc';
+    let joueurVirtuel = estMax ? couleurIA : couleurHumain;
+    let coups = getTousLesCoupsPour(joueurVirtuel, plat);
+
+    if (coups.length === 0) return estMax ? -100000 + profondeur : 100000 - profondeur;
+
+    // CORRECTION 3 : Tri des coups à chaque profondeur (Move Ordering).
+    // Permet à l'élagage Alpha-Beta d'éliminer instantanément les mauvaises branches.
+    coups.sort((a, b) => (b.info.nbPrises || 0) - (a.info.nbPrises || 0));
+    let evalFinale;
+
+    if (estMax) {
+        let maxEval = -Infinity;
+        for (let c of coups) {
+            let platSimule = clonerPlateau(plat);
+            appliquerCoupSimule(c, platSimule);
+            let encoreDesPrises = c.info.prise && (c.info.nbPrises > 1);
+            let evalCoup = minimax(platSimule, profondeur - 1, encoreDesPrises, alpha, beta);
+            maxEval = Math.max(maxEval, evalCoup);
+            alpha = Math.max(alpha, evalCoup);
+            if (beta <= alpha) break;
+        }
+        evalFinale = maxEval;
+    } else {
+        let minEval = Infinity;
+        for (let c of coups) {
+            let platSimule = clonerPlateau(plat);
+            appliquerCoupSimule(c, platSimule);
+            let encoreDesPrises = c.info.prise && (c.info.nbPrises > 1);
+            let evalCoup = minimax(platSimule, profondeur - 1, !encoreDesPrises, alpha, beta);
+            minEval = Math.min(minEval, evalCoup);
+            beta = Math.min(beta, evalCoup);
+            if (beta <= alpha) break;
+        }
+        evalFinale = minEval;
+    }
+
+    tableTransposition[clePlateau] = { score: evalFinale, profondeur: profondeur };
+    return evalFinale;
+}
+
+function quiescence(plat, alpha, beta, estMax) {
+    let scoreValeur = evaluerPlateau(plat);
+    if (estMax) {
+        if (scoreValeur >= beta) return beta;
+        alpha = Math.max(alpha, scoreValeur);
+    } else {
+        if (scoreValeur <= alpha) return alpha;
+        beta = Math.min(beta, scoreValeur);
+    }
+
+    const couleurIA = (couleurHumain === 'blanc') ? 'noir' : 'blanc';
+    let joueurVirtuel = estMax ? couleurIA : couleurHumain;
+    let coups = getTousLesCoupsPour(joueurVirtuel, plat).filter(c => c.info.prise);
+
+    for (let c of coups) {
+        let platSimule = clonerPlateau(plat);
+        appliquerCoupSimule(c, platSimule);
+        let evalCoup = quiescence(platSimule, alpha, beta, !estMax);
+        if (estMax) {
+            alpha = Math.max(alpha, evalCoup);
+            if (alpha >= beta) break;
+        } else {
+            beta = Math.min(beta, evalCoup);
+            if (beta <= alpha) break;
+        }
+    }
+    return estMax ? alpha : beta;
+}
+
+function appliquerCoupSimule(coup, plat) {
+    let pionOrigine = plat[coup.x1][coup.z1];
+    if (!pionOrigine) return;
+
+    plat[coup.x2][coup.z2] = {
+        couleur: pionOrigine.couleur,
+        estDame: pionOrigine.estDame
+    };
+    plat[coup.x1][coup.z1] = 0;
+
+    if (coup.info && coup.info.prise && coup.info.pionPris) {
+        plat[coup.info.pionPris.x][coup.info.pionPris.z] = 0;
+    }
+
+    if (plat[coup.x2][coup.z2].couleur === 'blanc' && coup.z2 === 0) plat[coup.x2][coup.z2].estDame = true;
+    if (plat[coup.x2][coup.z2].couleur === 'noir' && coup.z2 === 9) plat[coup.x2][coup.z2].estDame = true;
+}
+
+
+function getTousLesCoupsPour(couleur, plat) {
+    const tous = [];
+    let aUnePrise = false;
+
+    for (let x = 0; x < TAILLE; x++) {
+        for (let z = 0; z < TAILLE; z++) {
+            const pion = plat[x][z];
+            if (pion && pion !== 0 && pion.couleur === couleur) {
+                const coups = getTousLesCoups(x, z, plat);
+                for (let c of coups) {
+                    if (c.prise) aUnePrise = true;
+                    tous.push({ x1: x, z1: z, x2: c.x, z2: c.z, info: c });
+                }
+            }
+        }
+    }
+    return aUnePrise ? tous.filter(c => c.info.prise) : tous;
+}
+// ==========================================
+
+function surlignerCases(coups) {
+    effacerSurbrillance();
+    function surlignerChemin(listeCoups) {
+        listeCoups.forEach(c => {
+            scene.children.forEach(o => {
+                if (o.userData.type === 'case' && o.userData.x === c.x && o.userData.z === c.z) {
+                    o.material.emissive.setHex(SURBRILLANCE);
+                }
+            });
+            if (c.prise && c.chaines) surlignerChemin(c.chaines);
+        });
+    }
+    surlignerChemin(coups);
+}
+
+function surlignerErreur(pion) {
+    if (!pion) return;
+    vibrer('light');
+    const caseSousPion = scene.children.find(o => o.userData.type === 'case' && o.userData.x === pion.userData.x && o.userData.z === pion.userData.z);
+    if (caseSousPion) {
+        const couleurOriginale = caseSousPion.material.emissive.getHex();
+        caseSousPion.material.emissive.setHex(0xff0000);
+        setTimeout(() => { caseSousPion.material.emissive.setHex(couleurOriginale); }, 300);
+    }
+}
+
+function effacerSurbrillance() {
+    scene.children.forEach(o => {
+        if (o.userData.type === 'case') o.material.emissive.setHex(0x000000);
+    });
+    pions3D.forEach(p => p.children.forEach(m => {
+        if (m.material && m.material.emissive) {
+            m.material.emissive.setHex(p.userData.couleur === 'blanc' ? 0x111111 : 0x000000);
+        }
+    }));
+}
+
+function dansPlateau(x, z) {
+    return x >= 0 && x < TAILLE && z >= 0 && z < TAILLE;
+}
+
+// ==========================================
+// RETOUR HAPTIQUE
+// Utilise @capacitor/haptics si dispo (build natif), sinon
+// navigator.vibrate en fallback (navigateur/PWA).
+// ==========================================
+async function vibrer(style = 'light') {
+    try {
+        const H = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.Haptics;
+        if (H) {
+            if (style === 'success') {
+                await H.notification({ type: 'SUCCESS' });
+            } else {
+                const map = { light: 'LIGHT', medium: 'MEDIUM', heavy: 'HEAVY' };
+                await H.impact({ style: map[style] || 'LIGHT' });
+            }
+        } else if (navigator.vibrate) {
+            const durees = { light: 15, medium: 30, heavy: 50, success: [30, 50, 30] };
+            navigator.vibrate(durees[style] || 15);
+        }
+    } catch (e) { /* pas de retour haptique dispo, on ignore */ }
+}
+
+function updateUI() {
+    let nbBlanc = 0, nbNoir = 0;
+    pions3D.forEach(p => {
+        if (p.userData.couleur === 'blanc') nbBlanc++;
+        if (p.userData.couleur === 'noir') nbNoir++;
+    });
+
+    // Score : avatar en haut à droite = Noirs, avatar en bas à gauche = Blancs
+    const scoreTop = document.getElementById('scoreTop');
+    const scoreBottom = document.getElementById('scoreBottom');
+    if (scoreTop) scoreTop.textContent = nbNoir;
+    if (scoreBottom) scoreBottom.textContent = nbBlanc;
+
+    // Avatar : profils personnalisés (Joueur 1 / Joueur 2) ou avatar IA du mode en cours
+    const avatarDivTop = document.getElementById('avatarTopRight').querySelector('.player-avatar');
+    const avatarDivBottom = document.getElementById('avatarBottomLeft').querySelector('.player-avatar');
+    const iconTop = document.getElementById('avatarIconTop');
+    const iconBottom = document.getElementById('avatarIconBottom');
+    if (iconTop && iconBottom) {
+        if (modeJeu === 'humain') {
+            // Haut-droite = Noirs = Joueur 2, Bas-gauche = Blancs = Joueur 1
+            appliquerAvatarSurBadge(avatarDivTop, iconTop, profilJ2);
+            appliquerAvatarSurBadge(avatarDivBottom, iconBottom, profilJ1);
+        } else {
+            // Le badge correspondant à la couleur de l'humain affiche le profil Joueur 1,
+            // l'autre affiche l'avatar prédéfini de l'IA pour le mode en cours
+            const profilHautCote = (couleurHumain === 'noir') ? profilJ1 : avatarIAActuel;
+            const profilBasCote = (couleurHumain === 'blanc') ? profilJ1 : avatarIAActuel;
+            appliquerAvatarSurBadge(avatarDivTop, iconTop, profilHautCote);
+            appliquerAvatarSurBadge(avatarDivBottom, iconBottom, profilBasCote);
+        }
+    }
+
+    // Met en évidence l'avatar dont c'est le tour
+    const badgeTop = document.getElementById('avatarTopRight');
+    const badgeBottom = document.getElementById('avatarBottomLeft');
+    if (badgeTop) badgeTop.classList.toggle('active-turn', joueurActuel === 'noir');
+    if (badgeBottom) badgeBottom.classList.toggle('active-turn', joueurActuel === 'blanc');
+}
+
+// Construit et affiche le message central "au tour de..." en début de partie
+function afficherMessageDebut() {
+    const overlay = document.getElementById('messageDebutTour');
+    if (!overlay) return;
+    const icone = document.getElementById('turnMessageIcon');
+    const texte = document.getElementById('turnMessageText');
+
+    // La partie commence toujours avec les Blancs
+    const libelle = 'Ce sont les Blancs qui commencent en premier';
+
+    if (texte) texte.textContent = libelle;
+    if (icone) icone.textContent = joueurActuel === 'blanc' ? '⚪' : '⚫';
+
+    overlay.style.display = 'flex';
+    messageDebutActif = true;
+}
+
+// Ferme le message central (appelé au premier tap du joueur)
+function fermerMessageDebut() {
+    const overlay = document.getElementById('messageDebutTour');
+    if (overlay) overlay.style.display = 'none';
+    messageDebutActif = false;
+}
+
+function checkVictoire() {
+    let nbBlanc = 0, nbNoir = 0;
+    pions3D.forEach(p => {
+        if (p.userData.couleur === 'blanc') nbBlanc++;
+        if (p.userData.couleur === 'noir') nbNoir++;
+    });
+
+    if (jeuInitialise && (nbBlanc === 0 || nbNoir === 0)) {
+        vibrer('success');
+        let gagnantStr = "";
+        
+        if (modeJeu !== 'humain') {
+            // Déterminer la couleur gagnante
+            const couleurGagnante = (nbBlanc === 0) ? 'noir' : 'blanc';
+            
+            if (couleurGagnante === couleurHumain) {
+                gagnantStr = "Félicitations, tu as battu l'IA !";
+                // L'humain a gagné, on ne change rien pour la prochaine partie
+            } else {
+                gagnantStr = "L'IA a triomphé !";
+                // L'IA a gagné -> On inverse les rôles pour la prochaine partie !
+                couleurHumain = (couleurHumain === 'blanc') ? 'noir' : 'blanc';
+            }
+        } else {
+            gagnantStr = (nbBlanc === 0) ? "Les Noirs ont triomphé !" : "Les Blancs ont triomphé !";
+        }
+
+        document.getElementById('texteVictoire').textContent = gagnantStr;
+        document.getElementById('ecranVictoire').style.display = 'flex';
+        jeuInitialise = false; 
+    }
+}
+
+function resetPartie() {
+    // Réinitialisations légères, immédiates (peu coûteuses)
+    jeuInitialise = false; animationEnCours = false; pionEnMouvement = null;
+    pionSelectionne = null; caseSelectionnee = null; coupsPossibles = [];
+    joueurActuel = 'blanc'; rafleEnCours = false; pionQuiRafle = null; compteurErreurs = 0;
+    document.getElementById('ecranVictoire').style.display = 'none';
+    const msg = document.getElementById('messageObligatoire');
+    if (msg) msg.style.display = 'none';
+    const debutOverlay = document.getElementById('messageDebutTour');
+    if (debutOverlay) debutOverlay.style.display = 'none';
+    messageDebutActif = false;
+
+    // On laisse le navigateur peindre au moins une image de la transition d'écran
+    // en cours (fondu menu/HUD) avant de reconstruire le plateau 3D, qui est plus
+    // coûteux. Ça évite les saccades/résidus visuels sur les appareils d'entrée de gamme.
+    requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+            pions3D.forEach(pion => scene.remove(pion));
+            pions3D = [];
+
+            plateau = [];
+            for(let x = 0; x < TAILLE; x++) {
+                plateau[x] = [];
+                for(let z = 0; z < TAILLE; z++) {
+                    const estNoir = (x + z) % 2 === 1;
+                    plateau[x][z] = estNoir ? 0 : null;
+                }
+            }
+
+            placerPions();
+            updateUI();
+            effacerSurbrillance();
+            afficherMessageDebut();
+
+            if (modeJeu !== 'humain' && couleurHumain === 'noir') {
+                camera.position.set(4.5, 10, -4.5); 
+            } else {
+                camera.position.set(4.5, 10, 13.5); 
+            }
+            camera.lookAt(4.5, 0, 4.5);
+            controls.target.set(4.5, 0, 4.5);
+            controls.update();
+
+            setTimeout(() => { 
+                jeuInitialise = true; 
+                // Si l'IA doit jouer les Blancs, elle commence tout de suite !
+                if (modeJeu !== 'humain' && couleurHumain === 'noir') {
+                    joueurActuel = 'blanc';
+                    tourIA();
+                }
+            }, 500);
+        });
+    });
+}
+
+// GESTION DE L'ÉCRAN DE DÉMARRAGE CORRIGÉE
+function gererSplashScreen() {
+    const splash = document.getElementById('splashScreen');
+    const menu = document.getElementById('menuPrincipal');
+    
+    // 1. Au démarrage, on s'assure que le menu est bien invisible
+    menu.classList.remove('menu-visible');
+
+    // 2. À 2.2 secondes, la barre de chargement finit. On lance la disparition du Splash
+    setTimeout(() => {
+        splash.classList.add('splash-hidden');
+        
+        // 3. On attend que le fondu du splash soit quasiment terminé avant d'afficher le
+        //    menu, pour éviter que deux calques flous animent en même temps (source de
+        //    saccades sur les appareils d'entrée de gamme).
+        setTimeout(() => {
+            menu.classList.add('menu-visible');
+        }, 750);
+        
+    }, 2200);
+}
+
+ // Lancement des fonctions principales
+chargerProfils();
+init();
+gererSplashScreen();
+
+ 
+</script>
+</body>
+</html>
