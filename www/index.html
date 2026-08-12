@@ -5,7 +5,8 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Dame Gameplay </title>
 <style>
-* {   -webkit-tap-highlight-color: transparent;   -webkit-touch-callout: none; }
+* {   -webkit-tap-highlight-color: transparent;   -webkit-touch-callout: none;
+      -webkit-user-select: none; -moz-user-select: none; -ms-user-select: none; user-select: none; }
 body { margin: 0; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; overflow: hidden; touch-action: none; }
     
     #splashScreen {
@@ -428,6 +429,8 @@ body { margin: 0; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; over
     letter-spacing: 2px;
     margin-bottom: 14px;
     text-align: center;
+    -webkit-user-select: text; -moz-user-select: text; -ms-user-select: text; user-select: text;
+    -webkit-touch-callout: default;
 }
 .initiales-input::placeholder { color: rgba(255,255,255,0.35); text-transform: none; letter-spacing: normal; }
 
@@ -2091,10 +2094,44 @@ function gererSplashScreen() {
     }, 2200);
 }
 
+// ==========================================
+// BLOCAGE COPIER/COLLER (sauf champ Initiales, géré via CSS user-select: text)
+// ==========================================
+['copy', 'cut', 'paste', 'contextmenu', 'selectstart'].forEach(evt => {
+    document.addEventListener(evt, (e) => {
+        if (e.target && e.target.classList && e.target.classList.contains('initiales-input')) return;
+        e.preventDefault();
+    }, false);
+});
+
+// ==========================================
+// BOUTON RETOUR ANDROID (matériel/geste)
+// À l'accueil : quitte l'app. Ailleurs (paramètres, partie en cours,
+// écran de victoire) : revient à l'écran précédent, comme les boutons in-app.
+// ==========================================
+function initBoutonRetourAndroid() {
+    const CapApp = window.Capacitor && window.Capacitor.Plugins && window.Capacitor.Plugins.App;
+    if (!CapApp) return; // Hors app native (aperçu navigateur) : comportement par défaut
+
+    CapApp.addListener('backButton', () => {
+        const parametresOuvert = document.getElementById('ecranParametres').classList.contains('parametres-visible');
+        const enPartie = document.body.classList.contains('jeu-actif');
+
+        if (parametresOuvert) {
+            fermerParametres();
+        } else if (enPartie) {
+            retourMenu();
+        } else {
+            CapApp.exitApp();
+        }
+    });
+}
+
  // Lancement des fonctions principales
 chargerProfils();
 init();
 gererSplashScreen();
+initBoutonRetourAndroid();
 
  
 </script>
