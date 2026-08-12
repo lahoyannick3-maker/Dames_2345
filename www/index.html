@@ -1557,67 +1557,123 @@ function finDeTour() {
 //      LOGIQUE IA STRATÃ‰GIQUE - EXPERT ðŸ”¥
 // ==========================================
 
-function tourIA() { // <-- Plus de paramètre 'e'
+// ==========================================
+// MOTEUR IA — EXÉCUTÉ DANS UN WEB WORKER (thread séparé)
+// ==========================================
+// Le calcul minimax est lourd (jusqu'à profondeur 7). L'exécuter sur le thread
+// principal gèle le rendu 3D et les taps pendant tout le calcul. On le déplace
+// donc dans un Worker, construit ici en mémoire (via Blob) à partir des mêmes
+// fonctions que celles utilisées par le jeu — un seul fichier HTML, comme avant,
+// et strictement le même calcul (mêmes profondeurs, même algorithme).
+let iaWorker = null;
+let iaRequestId = 0;
+
+function creerIAWorker() {
+    if (iaWorker) return;
+
+    const fonctionsIA = [
+        clonerPlateau, dansPlateau, getCoupsPion, getCoupsDame, getTousLesCoups,
+        getTousLesCoupsPour, genererClePlateau, evaluerPlateau, minimax, quiescence, appliquerCoupSimule
+    ].map(f => f.toString()).join('\n\n');
+
+    const corpsWorker = `
+        const TAILLE = ${TAILLE};
+        const MATRICE_TACTIQUE = ${JSON.stringify(MATRICE_TACTIQUE)};
+        let couleurHumain = 'blanc';
+        let tableTransposition = {};
+
+        ${fonctionsIA}
+
+        self.onmessage = function(e) {
+            const { plateau, joueurActuel, modeJeu, couleurHumain: ch, requestId } = e.data;
+            couleurHumain = ch;
+            tableTransposition = {};
+
+            let coups = getTousLesCoupsPour(joueurActuel, plateau);
+            if (coups.length === 0) {
+                self.postMessage({ requestId, aucunCoup: true });
+                return;
+            }
+
+            let meilleurCoup = coups[0];
+            let profondeurMax = { 'faible': 1, 'moyen': 3, 'normal': 5, 'expert': 7 }[modeJeu];
+
+            if (modeJeu === 'faible' && Math.random() < 0.35 && coups.length > 1) {
+                meilleurCoup = coups[Math.floor(Math.random() * coups.length)];
+            } else {
+                let meilleurScore = -Infinity;
+                coups.sort((a, b) => (b.info.nbPrises || 0) - (a.info.nbPrises || 0));
+                for (let c of coups) {
+                    let platSimule = clonerPlateau(plateau);
+                    appliquerCoupSimule(c, platSimule);
+                    let encoreDesPrises = c.info.prise && (c.info.nbPrises > 1);
+                    let score = minimax(platSimule, profondeurMax - 1, encoreDesPrises, -Infinity, Infinity);
+                    if (score > meilleurScore) {
+                        meilleurScore = score;
+                        meilleurCoup = c;
+                    }
+                }
+            }
+            self.postMessage({ requestId, meilleurCoup });
+        };
+    `;
+
+    const blob = new Blob([corpsWorker], { type: 'application/javascript' });
+    const url = URL.createObjectURL(blob);
+    iaWorker = new Worker(url);
+
+    iaWorker.onmessage = function(e) {
+        const { requestId, meilleurCoup, aucunCoup } = e.data;
+
+        // Réponse obsolète : la partie a changé de mode/état pendant le calcul
+        // (ex: retour au menu ou nouvelle partie humaine entre-temps). On l'ignore.
+        if (requestId !== iaRequestId || modeJeu === 'humain') return;
+
+        if (aucunCoup) {
+            const gagnantStr = (couleurHumain === 'blanc') ? "Victoire des Blancs !" : "Victoire des Noirs !";
+            document.getElementById('texteVictoire').textContent = gagnantStr;
+            document.getElementById('ecranVictoire').style.display = 'flex';
+            return;
+        }
+
+        animationEnCours = true;
+        effacerSurbrillance();
+
+        const caseCible = scene.children.find(obj =>
+            obj.userData.type === 'case' &&
+            obj.userData.x === meilleurCoup.x2 &&
+            obj.userData.z === meilleurCoup.z2
+        );
+        if (caseCible) caseCible.material.emissive.setHex(SURBRILLANCE);
+
+        // Attendre 600ms pour que le joueur voie où l'IA va jouer, puis déplacer le pion
+        setTimeout(() => {
+            animationEnCours = false;
+            jouerCoup(meilleurCoup.x1, meilleurCoup.z1, meilleurCoup.x2, meilleurCoup.z2, meilleurCoup.info);
+        }, 600);
+    };
+}
+
+function tourIA() {
+    // Garde de sécurité : si la partie est repassée en mode 2 joueurs entre-temps
+    // (ex: "Quitter" ou "Nouvelle partie" cliqué pendant qu'un tour IA était encore
+    // programmé via setTimeout), on annule ce tour obsolète. Sans ça, un calcul IA
+    // lourd (et même un coup joué par l'IA) pouvait s'exécuter en pleine partie humaine.
+    if (modeJeu === 'humain') return;
+
     if (animationEnCours) {
         setTimeout(tourIA, 200); return; 
     }
 
-    // Plus de "e.data" ! On utilise directement les variables de ton jeu principal.
-    // (Assure-toi que 'plateau', 'modeJeu' et 'joueurActuel' sont bien accessibles globalement dans ton script)
-    tableTransposition = {};  
-    
-    let coups = getTousLesCoupsPour(joueurActuel, plateau);
-    if (coups.length === 0) {
-        const gagnantStr = (couleurHumain === 'blanc') ? "Victoire des Blancs !" : "Victoire des Noirs !";
-        document.getElementById('texteVictoire').textContent = gagnantStr;
-        document.getElementById('ecranVictoire').style.display = 'flex';
-        return;
-    }
-  
-    let meilleurCoup = coups[0];
-    let profondeurMax = { 'faible': 1, 'moyen': 3, 'normal': 5, 'expert': 7 }[modeJeu];
-
-    if (modeJeu === 'faible' && Math.random() < 0.35 && coups.length > 1) {
-        meilleurCoup = coups[Math.floor(Math.random() * coups.length)];
-    } else {
-        let meilleurScore = -Infinity;
-        // CORRECTION 1 : Tri performant dès le premier niveau basé sur le potentiel de rafle total
-        coups.sort((a, b) => (b.info.nbPrises || 0) - (a.info.nbPrises || 0));
-
-        for (let c of coups) {
-            let platSimule = clonerPlateau(plateau);
-            appliquerCoupSimule(c, platSimule);
-            
-            let encoreDesPrises = c.info.prise && (c.info.nbPrises > 1);
-            let score = minimax(platSimule, profondeurMax - 1, encoreDesPrises, -Infinity, Infinity);
-
-            if (score > meilleurScore) {
-                meilleurScore = score;
-                meilleurCoup = c;
-            }
-        }
-    }
-    
-    // ===== AJOUT : Surlignage de la case de destination avant le mouvement =====
-    animationEnCours = true; 
-    effacerSurbrillance();
-
-    // Trouver l'objet 3D de la case cible pour la colorer en vert
-    const caseCible = scene.children.find(obj => 
-        obj.userData.type === 'case' && 
-        obj.userData.x === meilleurCoup.x2 && 
-        obj.userData.z === meilleurCoup.z2
-    );
-
-    if (caseCible) {
-        caseCible.material.emissive.setHex(SURBRILLANCE);
-    }
-
-    // Attendre 600ms pour que le joueur voie où l'IA va jouer, puis déplacer le pion
-    setTimeout(() => {
-        animationEnCours = false;
-        jouerCoup(meilleurCoup.x1, meilleurCoup.z1, meilleurCoup.x2, meilleurCoup.z2, meilleurCoup.info);
-    }, 600); 
+    creerIAWorker();
+    iaRequestId++;
+    iaWorker.postMessage({
+        plateau,
+        joueurActuel,
+        modeJeu,
+        couleurHumain,
+        requestId: iaRequestId
+    });
 }
 
 
