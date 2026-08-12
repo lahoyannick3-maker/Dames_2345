@@ -933,12 +933,17 @@ function construireEcranProfil(joueur) {
 
     // Champ initiales
     const inputInitiales = document.getElementById('initialesInputJ' + joueur.slice(1));
+    const apercuGrand = document.getElementById('apercu' + joueur.toUpperCase() + 'Grand');
     inputInitiales.value = (profil.type === 'initiales') ? profil.value : '';
     inputInitiales.oninput = () => {
         profil.value = inputInitiales.value.toUpperCase().slice(0, 2);
         profil.type = 'initiales';
         sauvegarderProfil(joueur);
         rafraichirBadgesEnJeu();
+        // Mise à jour immédiate de l'aperçu, sans attendre un clic ailleurs
+        apercuGrand.style.background = profil.couleur;
+        apercuGrand.textContent = profil.value;
+        apercuGrand.style.fontSize = '1.1em';
     };
 
     // Boutons de type Emoji / Initiales
