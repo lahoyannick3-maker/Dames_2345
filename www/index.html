@@ -829,15 +829,6 @@ const CASE_SELECT = 0x3498db;
 let scene, camera, renderer, controls, raycaster, mouse;
 let plateau=[];
 let pions3D = [];
-// Références directes : le tactile et les mises à jour ne parcourent plus la scène 3D.
-let cases3D = Array.from({ length: TAILLE }, () => Array(TAILLE));
-let pions3DParCase = Array.from({ length: TAILLE }, () => Array(TAILLE).fill(null));
-let pointerNDC = new THREE.Vector2();
-let pointerRayOrigin = new THREE.Vector3();
-let pointerRayDirection = new THREE.Vector3();
-let pionGeoPartagee = null;
-let couronneGeoPartagee = null;
-let caseGeoPartagee = null;
 let pionSelectionne = null;
 let caseSelectionnee = null;
 let coupsPossibles = [];
@@ -870,7 +861,7 @@ const AVATARS_IA = {
     expert:  [ {type:'emoji', value:'👑', couleur:'#dc2626'}, {type:'emoji', value:'🐲', couleur:'#8b5cf6'}, {type:'emoji', value:'💀', couleur:'#1e293b'} ]
 };
 
-const PROFIL_DEFAUT_J1 = { type: 'emoji', value: '👤', couleur: '#4364f7' };
+const PROFIL_DEFAUT_J1 = { type: 'emoji', value: '👤', couleur: '#0ea5e9' };
 const PROFIL_DEFAUT_J2 = { type: 'emoji', value: '👤', couleur: '#1e293b' };
 
 let profilJ1 = { ...PROFIL_DEFAUT_J1 };
@@ -996,88 +987,67 @@ let couleurHumain = 'blanc';
 const vitesseUnitesParSeconde = 12.0; 
 const horloge = new THREE.Clock();
 
-let renduNecessaire = true;
-let dernierEtatAnimation = false;
-
-function demanderRendu() {
-    renduNecessaire = true;
-}
-
 function animer() {
     requestAnimationFrame(animer);
     const deltaTime = horloge.getDelta();
-
+    
     if (pionEnMouvement) {
+        // Initialiser le suivi du temps propre à ce mouvement si ce n'est pas fait
         if (pionEnMouvement.userData.tempsEcoule === undefined) {
             pionEnMouvement.userData.tempsEcoule = 0;
+            // Calculer la distance totale pour adapter la durée (plus c'est loin, plus ça prend un poil plus de temps)
             let dx = cibleMouvement.x - pionEnMouvement.userData.oldX;
             let dz = cibleMouvement.z - pionEnMouvement.userData.oldZ;
             let distance = Math.sqrt(dx * dx + dz * dz);
-            pionEnMouvement.userData.dureeTotale = distance > 1.5 ? 0.40 : 0.25;
+            // Durée de l'animation fixe ou proportionnelle (ex: 0.25 seconde par saut)
+            pionEnMouvement.userData.dureeTotale = distance > 1.5 ? 0.40 : 0.25; 
         }
 
+        // Avancer dans le temps de l'animation
         pionEnMouvement.userData.tempsEcoule += deltaTime;
-        let t = Math.min(
-            pionEnMouvement.userData.tempsEcoule / pionEnMouvement.userData.dureeTotale,
-            1.0
-        );
+        // Calculer le ratio d'avancement entre 0.0 et 1.0
+        let t = Math.min(pionEnMouvement.userData.tempsEcoule / pionEnMouvement.userData.dureeTotale, 1.0);
+
+        // Lissage du facteur t (Smoothstep) pour un effet de démarrage et freinage en douceur (Ease-in-out)
         let tLisse = t * t * (3 - 2 * t);
 
-        pionEnMouvement.position.x =
-            pionEnMouvement.userData.oldX +
-            (cibleMouvement.x - pionEnMouvement.userData.oldX) * tLisse;
-        pionEnMouvement.position.z =
-            pionEnMouvement.userData.oldZ +
-            (cibleMouvement.z - pionEnMouvement.userData.oldZ) * tLisse;
+        // Interpolation de la position X et Z (Mouvement fluide au sol)
+        pionEnMouvement.position.x = pionEnMouvement.userData.oldX + (cibleMouvement.x - pionEnMouvement.userData.oldX) * tLisse;
+        pionEnMouvement.position.z = pionEnMouvement.userData.oldZ + (cibleMouvement.z - pionEnMouvement.userData.oldZ) * tLisse;
 
+        // Gestion de la hauteur (Y)
         if (pionEnMouvement.userData.estUnePrise) {
-            const hauteurSaut = 0.2;
+            // Parabole parfaite basée sur tLisse pour un arc de cercle parfait lors du saut
+            const hauteurSaut = 0.2; 
             pionEnMouvement.position.y = 4 * hauteurSaut * tLisse * (1 - tLisse);
         } else {
-            pionEnMouvement.position.y = 0.05 * Math.sin(tLisse * Math.PI);
+            // Petit effet de glissement ou d'élévation minime pour éviter le clipping avec le plateau
+            pionEnMouvement.position.y = 0.05 * Math.sin(tLisse * Math.PI); 
         }
 
-        renduNecessaire = true;
-
+        // Quand l'animation en cours arrive à sa fin (t = 1)
         if (t === 1.0) {
             pionEnMouvement.position.set(cibleMouvement.x, 0, cibleMouvement.z);
             const coupInfo = pionEnMouvement.userData.coupEnAttente;
-
+            
+            // Nettoyage des variables temporaires d'animation
             delete pionEnMouvement.userData.coupEnAttente;
             delete pionEnMouvement.userData.estUnePrise;
             delete pionEnMouvement.userData.tempsEcoule;
             delete pionEnMouvement.userData.dureeTotale;
-
+            
             pionEnMouvement.userData.x = cibleMouvement.x;
             pionEnMouvement.userData.z = cibleMouvement.z;
-            pions3DParCase[pionEnMouvement.userData.oldX][pionEnMouvement.userData.oldZ] = null;
-            pions3DParCase[cibleMouvement.x][cibleMouvement.z] = pionEnMouvement;
-
+            
             const pionFinal = pionEnMouvement;
             pionEnMouvement = null;
             terminerLogiqueCoup(pionFinal, coupInfo);
-
-            renderer.shadowMap.autoUpdate = false;
-            renderer.shadowMap.needsUpdate = true;
         }
     }
-
-    if (controls && controls.update()) {
-        renduNecessaire = true;
-    }
-
-    const animationActive = !!pionEnMouvement;
-    if (animationActive !== dernierEtatAnimation) {
-        dernierEtatAnimation = animationActive;
-        renduNecessaire = true;
-    }
-
-    if (renduNecessaire || animationActive) {
-        renderer.render(scene, camera);
-        renduNecessaire = false;
-    }
+    
+    controls.update();
+    renderer.render(scene, camera);
 }
-
 
 
 function demarrerJeu(mode) {
@@ -1096,12 +1066,10 @@ function demarrerJeu(mode) {
     document.body.classList.add('jeu-actif');
     
     // 2. On réinitialise la partie et on lance l'animation
-    resetPartie();
-    if (!window.__damesRenderLoopStarted) {
-        window.__damesRenderLoopStarted = true;
+    resetPartie(); 
+    if (!animationEnCours) {
         animer();
     }
-    demanderRendu();
 }
 
 function retourMenu() {
@@ -1190,64 +1158,39 @@ function onResize() {
 
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
-    demanderRendu();
-}
-
-// Tactile direct : conversion écran -> plan du plateau.
-// Beaucoup plus léger qu'un Raycaster + intersectObjects sur tous les Mesh.
-function getBoardCellFromPointer(event) {
-    const rect = renderer.domElement.getBoundingClientRect();
-    pointerNDC.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
-    pointerNDC.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
-
-    pointerRayOrigin.set(pointerNDC.x, pointerNDC.y, -1).unproject(camera);
-    pointerRayDirection.set(0, 0, -1).transformDirection(camera.matrixWorld);
-
-    if (Math.abs(pointerRayDirection.y) < 1e-7) return null;
-    const distance = -pointerRayOrigin.y / pointerRayDirection.y;
-    if (distance < 0) return null;
-
-    const worldX = pointerRayOrigin.x + pointerRayDirection.x * distance;
-    const worldZ = pointerRayOrigin.z + pointerRayDirection.z * distance;
-
-    if (worldX < -0.49 || worldX > 9.49 || worldZ < -0.49 || worldZ > 9.49) {
-        return null;
-    }
-
-    return {
-        x: Math.max(0, Math.min(9, Math.round(worldX))),
-        z: Math.max(0, Math.min(9, Math.round(worldZ)))
-    };
 }
 
 function onPointerDown(event) {
+    // Le premier tap ferme uniquement le message "au tour de..." sans jouer de coup
     if (messageDebutActif) { fermerMessageDebut(); return; }
-
     const msg = document.getElementById('messageObligatoire');
-    if ((msg && msg.style.display === 'block') || animationEnCours ||
-        (modeJeu !== 'humain' && joueurActuel !== couleurHumain)) return;
+    // MODIFICATION : On vérifie si c'est au tour de l'IA (c-à-d si le joueur actuel n'est pas la couleur de l'humain)
+    if ((msg && msg.style.display === 'block') || animationEnCours || (modeJeu !== 'humain' && joueurActuel !== couleurHumain)) return; 
+    getMousePosition(event);
+     raycaster.setFromCamera(mouse, camera);
+    const objetsInteractifs = scene.children.filter(obj => obj.userData.type === 'pion' || obj.userData.type === 'case');
+    const intersects = raycaster.intersectObjects(objetsInteractifs, true);
 
-    const cellule = getBoardCellFromPointer(event);
-    if (!cellule) {
-        pionSelectionne = null;
-        effacerSurbrillance();
-        return;
-    }
+    if (intersects.length > 0) {
+        let obj = intersects[0].object;
+        while (obj && !obj.userData.type) obj = obj.parent;
+        if (!obj || !obj.userData) return;
 
-    const { x, z } = cellule;
-    const pion = pions3DParCase[x]?.[z] || null;
-
-    if (pion) {
-        if (pion.userData.couleur === joueurActuel) {
-            selectionnerPion(pion);
-        } else {
-            pionSelectionne = null;
-            effacerSurbrillance();
+        if (obj.userData.type === 'pion') {
+            if (obj.userData.couleur === joueurActuel) {
+                selectionnerPion(obj);
+            } else {
+                pionSelectionne = null; effacerSurbrillance();
+            }
+        } else if (obj.userData.type === 'case') {
+            if (pionSelectionne) {
+                deplacerPion(obj.userData.x, obj.userData.z);
+            } else {
+                effacerSurbrillance();
+            }
         }
-    } else if (pionSelectionne) {
-        deplacerPion(x, z);
     } else {
-        effacerSurbrillance();
+        pionSelectionne = null; effacerSurbrillance();
     }
 }
 
@@ -1273,12 +1216,9 @@ camera.position.set(4.5, 10, 13.5); // Force la caméra du côté des Blancs (en
 camera.lookAt(4.5, 0, 4.5);
     renderer = new THREE.WebGLRenderer({antialias: true});
     renderer.setSize(window.innerWidth, window.innerHeight);
-    renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
+    renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
     renderer.shadowMap.enabled = true;
     renderer.shadowMap.type = THREE.PCFShadowMap;
-    // Les ombres sont conservées visuellement mais leur carte est figée
-    // quand la scène est immobile. Elle est réactualisée pendant les mouvements.
-    renderer.shadowMap.autoUpdate = false;
     document.body.appendChild(renderer.domElement);
     renderer.domElement.style.touchAction = 'none';
 
@@ -1287,7 +1227,6 @@ camera.lookAt(4.5, 0, 4.5);
     controls.enableDamping = true;
     controls.enableRotate = false;
     controls.minZoom = 0.65; controls.maxZoom = 2;
-    controls.addEventListener('change', demanderRendu);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     const dirLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -1298,9 +1237,11 @@ camera.lookAt(4.5, 0, 4.5);
     dirLight.shadow.camera.top = 10; dirLight.shadow.camera.bottom = -10;
     scene.add(dirLight);
 
+    raycaster = new THREE.Raycaster();
+    mouse = new THREE.Vector2();
+
     creerPlateau();
     placerPions();
-    renderer.shadowMap.needsUpdate = true;
 
     renderer.domElement.addEventListener('pointerdown', onPointerDown, false);
     window.addEventListener('resize', onResize);
@@ -1310,29 +1251,26 @@ camera.lookAt(4.5, 0, 4.5);
 function creerPion(couleurHex, x, z, estDame = false) {
     const groupe = new THREE.Group();
     const couleurStr = couleurHex === BLANC ? 'blanc' : 'noir';
-
-    // Géométries partagées. Les matériaux restent individuels pour préserver
-    // exactement la sélection lumineuse de chaque pion.
-    if (!pionGeoPartagee) {
-        pionGeoPartagee = new THREE.CylinderGeometry(0.35, 0.4, 0.25, 32);
-    }
-    if (estDame && !couronneGeoPartagee) {
-        couronneGeoPartagee = new THREE.TorusGeometry(0.25, 0.08, 16, 32);
-    }
-
+    const geo = new THREE.CylinderGeometry(0.35, 0.4, 0.25, 32);
     const mat = new THREE.MeshStandardMaterial({
         color: couleurHex, roughness: 0.3, metalness: 0.6,
         emissive: couleurHex, emissiveIntensity: 0.05
     });
-    const mesh = new THREE.Mesh(pionGeoPartagee, mat);
+    const mesh = new THREE.Mesh(geo, mat);
     mesh.castShadow = true; mesh.position.y = 0.125;
     groupe.add(mesh);
 
-    // Les anciennes hitbox 3D sont supprimées : le tactile identifie
-    // directement la case, donc aucun objet invisible n'est nécessaire.
+    // Zone de détection tactile élargie et invisible (couvre presque toute la case),
+    // pour rendre l'appui sur un pion plus réactif/fiable sur petit écran.
+    const hitboxGeo = new THREE.CylinderGeometry(0.46, 0.46, 0.5, 12);
+    const hitboxMat = new THREE.MeshBasicMaterial({ visible: false });
+    const hitbox = new THREE.Mesh(hitboxGeo, hitboxMat);
+    hitbox.position.y = 0.15;
+    groupe.add(hitbox);
 
     if (estDame) {
-        const couronne = new THREE.Mesh(couronneGeoPartagee, mat);
+        const couronneGeo = new THREE.TorusGeometry(0.25, 0.08, 16, 32);
+        const couronne = new THREE.Mesh(couronneGeo, mat);
         couronne.position.y = 0.35; couronne.rotation.x = Math.PI / 2;
         groupe.add(couronne);
     }
@@ -1341,8 +1279,6 @@ function creerPion(couleurHex, x, z, estDame = false) {
     groupe.userData = { x, z, couleur: couleurStr, couleurHex, mesh, estDame, type: 'pion' };
     groupe.updateMatrixWorld(true);
     scene.add(groupe);
-
-    pions3DParCase[x][z] = groupe;
     return groupe;
 }
 
@@ -1426,9 +1362,6 @@ function deplacerPion(x, z) {
 }
 
 function creerPlateau() {
-    // Une seule géométrie pour les 100 cases : même apparence, moins de travail GPU.
-    caseGeoPartagee = new THREE.BoxGeometry(0.98, 0.1, 0.98);
-
     const tableGeo = new THREE.BoxGeometry(14, 0.5, 14);
     const tableMat = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 0.8, metalness: 0.1 });
     const table = new THREE.Mesh(tableGeo, tableMat);
@@ -1445,16 +1378,16 @@ function creerPlateau() {
         plateau[x] = [];
         for(let z = 0; z < TAILLE; z++) {
             const estNoir = (x + z) % 2 === 1;
+            const caseGeo = new THREE.BoxGeometry(0.98, 0.1, 0.98);
             const caseMat = new THREE.MeshStandardMaterial({
-                color: estNoir ? CASE_NOIR : CASE_BLANC, roughness: 0.7, metalness: 0.1
+                color: estNoir? CASE_NOIR : CASE_BLANC, roughness: 0.7, metalness: 0.1
             });
-            const caseMesh = new THREE.Mesh(caseGeoPartagee, caseMat);
+            const caseMesh = new THREE.Mesh(caseGeo, caseMat);
             caseMesh.position.set(x, 0, z);
             caseMesh.userData = {x, z, type: 'case', estNoir};
             caseMesh.receiveShadow = true;
             scene.add(caseMesh);
-            cases3D[x][z] = caseMesh;
-            plateau[x][z] = estNoir ? 0 : null;
+            plateau[x][z] = estNoir? 0 : null;
         }
     }
 }
@@ -1546,13 +1479,12 @@ function getCoupsDame(x, z, plat) {
 }
 
 function jouerCoup(x1, z1, x2, z2, coupInfo) {
-    const pionMesh = pions3DParCase[x1]?.[z1] || null;
+    const pionMesh = pions3D.find(p => p.userData.x === x1 && p.userData.z === z1);
     if (!pionMesh) return;
 
     vibrer(coupInfo.prise ? 'heavy' : 'medium');
 
     animationEnCours = true;
-    renderer.shadowMap.autoUpdate = true;
     pionMesh.userData.oldX = x1; pionMesh.userData.oldZ = z1;
     pionMesh.userData.estUnePrise = coupInfo.prise; 
     pionEnMouvement = pionMesh;
@@ -1568,11 +1500,10 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
     plateau[xOrigine][zOrigine] = 0;
 
     if (coupInfo.prise) {
-        const pionPris = pions3DParCase[coupInfo.pionPris.x]?.[coupInfo.pionPris.z] || null; 
+        const pionPris = pions3D.find(p => p.userData.x === coupInfo.pionPris.x && p.userData.z === coupInfo.pionPris.z); 
         if (pionPris) {
             scene.remove(pionPris);
             pions3D = pions3D.filter(p => p !== pionPris);
-            pions3DParCase[coupInfo.pionPris.x][coupInfo.pionPris.z] = null;
         }
         plateau[coupInfo.pionPris.x][coupInfo.pionPris.z] = 0;
 
@@ -1607,7 +1538,6 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
             plateau[xDest][zDest].estDame = true;
             scene.remove(pionMesh);
             pions3D = pions3D.filter(p => p !== pionMesh);
-            pions3DParCase[xDest][zDest] = null;
             const nouveauPion = creerPion(pionMesh.userData.couleurHex, xDest, zDest, true);
             nouveauPion.userData.couleur = pionMesh.userData.couleur;
             nouveauPion.userData.couleurHex = pionMesh.userData.couleurHex;
@@ -1940,11 +1870,13 @@ function getTousLesCoupsPour(couleur, plat) {
 
 function surlignerCases(coups) {
     effacerSurbrillance();
-
     function surlignerChemin(listeCoups) {
         listeCoups.forEach(c => {
-            const caseMesh = cases3D[c.x]?.[c.z];
-            if (caseMesh) caseMesh.material.emissive.setHex(SURBRILLANCE);
+            scene.children.forEach(o => {
+                if (o.userData.type === 'case' && o.userData.x === c.x && o.userData.z === c.z) {
+                    o.material.emissive.setHex(SURBRILLANCE);
+                }
+            });
             if (c.prise && c.chaines) surlignerChemin(c.chaines);
         });
     }
@@ -1954,7 +1886,7 @@ function surlignerCases(coups) {
 function surlignerErreur(pion) {
     if (!pion) return;
     vibrer('light');
-    const caseSousPion = cases3D[pion.userData.x]?.[pion.userData.z];
+    const caseSousPion = scene.children.find(o => o.userData.type === 'case' && o.userData.x === pion.userData.x && o.userData.z === pion.userData.z);
     if (caseSousPion) {
         const couleurOriginale = caseSousPion.material.emissive.getHex();
         caseSousPion.material.emissive.setHex(0xff0000);
@@ -1963,12 +1895,9 @@ function surlignerErreur(pion) {
 }
 
 function effacerSurbrillance() {
-    for (let x = 0; x < TAILLE; x++) {
-        for (let z = 0; z < TAILLE; z++) {
-            const c = cases3D[x]?.[z];
-            if (c) c.material.emissive.setHex(0x000000);
-        }
-    }
+    scene.children.forEach(o => {
+        if (o.userData.type === 'case') o.material.emissive.setHex(0x000000);
+    });
     pions3D.forEach(p => p.children.forEach(m => {
         if (m.material && m.material.emissive) {
             m.material.emissive.setHex(p.userData.couleur === 'blanc' ? 0x111111 : 0x000000);
@@ -2118,7 +2047,6 @@ function resetPartie() {
         requestAnimationFrame(() => {
             pions3D.forEach(pion => scene.remove(pion));
             pions3D = [];
-            for (let x = 0; x < TAILLE; x++) pions3DParCase[x].fill(null);
 
             plateau = [];
             for(let x = 0; x < TAILLE; x++) {
