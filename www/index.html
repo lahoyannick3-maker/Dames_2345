@@ -1664,6 +1664,12 @@ function tourIA() {
     // lourd (et même un coup joué par l'IA) pouvait s'exécuter en pleine partie humaine.
     if (modeJeu === 'humain') return;
 
+    // Quand l'IA commence la partie (elle joue les Blancs), le message "Ce sont les
+    // Blancs qui commencent en premier" est encore affiché. Un humain le ferme en
+    // touchant l'écran avant de jouer ; l'IA ne peut pas taper, donc on le ferme ici
+    // automatiquement, avant qu'elle ne joue son coup.
+    if (messageDebutActif) fermerMessageDebut();
+
     if (animationEnCours) {
         setTimeout(tourIA, 200); return; 
     }
