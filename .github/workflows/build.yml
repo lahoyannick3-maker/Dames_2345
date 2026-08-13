@@ -32,6 +32,62 @@ jobs:
       - name: Générer l'icône Android depuis assets/icon.png
         run: npx @capacitor/assets generate --android --splashBackgroundColor '#0F0C29' --splashBackgroundColorDark '#0F0C29'
 
+      - name: Forcer le fond de démarrage natif (évite le flash blanc avant le splash)
+        run: |
+          python3 << 'EOF'
+          import re, os
+
+          COULEUR = "#0F0C29"
+          chemins = [
+              "android/app/src/main/res/values/styles.xml",
+              "android/app/src/main/res/values-night/styles.xml",
+          ]
+
+          def forcer_window_background(match):
+              bloc = match.group(0)
+              if 'android:windowBackground' in bloc:
+                  bloc = re.sub(
+                      r'(name="android:windowBackground">)[^<]+(<)',
+                      r'\1' + COULEUR + r'\2',
+                      bloc
+                  )
+              else:
+                  bloc = bloc.replace(
+                      '>',
+                      '>\n        <item name="android:windowBackground">' + COULEUR + '</item>',
+                      1
+                  )
+              return bloc
+
+          for styles_path in chemins:
+              if not os.path.isfile(styles_path):
+                  continue
+
+              with open(styles_path, "r", encoding="utf-8") as f:
+                  contenu = f.read()
+
+              # 1. Le thème de lancement (Theme.SplashScreen, Android 12+) : on force
+              #    windowSplashScreenBackground en couleur littérale, peu importe la
+              #    référence @color/... utilisée par @capacitor/assets.
+              contenu = re.sub(
+                  r'(name="windowSplashScreenBackground">)[^<]+(<)',
+                  r'\1' + COULEUR + r'\2',
+                  contenu
+              )
+
+              # 2. On force aussi android:windowBackground sur CHAQUE thème du fichier
+              #    (thème de lancement ET thème principal) : c'est ce fond-là que
+              #    l'OS affiche en tout premier, avant même l'API SplashScreen,
+              #    et c'est lui qui causait le flash blanc.
+              contenu = re.sub(r'<style[^>]*>.*?</style>', forcer_window_background, contenu, flags=re.DOTALL)
+
+              with open(styles_path, "w", encoding="utf-8") as f:
+                  f.write(contenu)
+
+              print(f"--- {styles_path} patché avec succès ---")
+              print(contenu)
+          EOF
+
       - name: Synchroniser Capacitor (copie www/ + plugins natifs)
         run: npx cap sync android
 
