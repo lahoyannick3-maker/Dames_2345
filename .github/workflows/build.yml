@@ -42,6 +42,8 @@ jobs:
             -s EXPORTED_FUNCTIONS="['_wasm_calculerMeilleurCoup','_malloc','_free']" \
             -s EXPORTED_RUNTIME_METHODS="['ccall']" \
             -s ALLOW_MEMORY_GROWTH=1 \
+            -s INITIAL_MEMORY=33554432 \
+            -s STACK_SIZE=262144 \
             -s SINGLE_FILE=0
           ls -la www/moteur.js www/moteur.wasm
 
