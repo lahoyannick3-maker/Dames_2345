@@ -41,6 +41,7 @@ jobs:
           chemins = [
               "android/app/src/main/res/values/styles.xml",
               "android/app/src/main/res/values-night/styles.xml",
+              "android/app/src/main/res/values-v31/styles.xml",
           ]
 
           def forcer_window_background(match):
