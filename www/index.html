@@ -1622,12 +1622,19 @@ function creerIAWorker() {
             const codeJoueur = joueurActuel === 'blanc' ? 0 : 1;
             const codeHumain = couleurHumain === 'blanc' ? 0 : 1;
 
+            const debutCalcul = performance.now();
             const resultJson = Module.ccall(
                 'wasm_calculerMeilleurCoup', 'string',
                 ['array', 'number', 'number', 'number'],
                 [plateauPlat, codeJoueur, profondeurMax, codeHumain]
             );
+            const tempsCalculMs = performance.now() - debutCalcul;
             const res = JSON.parse(resultJson);
+
+            // Mesure réelle du calcul C/WASM dans le Worker.
+            // Utile pour comparer les modes sur le ZTE Blade A35e sans
+            // modifier le comportement du moteur.
+            console.log(`[IA C/WASM] ${modeJeu}: ${tempsCalculMs.toFixed(1)} ms | nœuds: ${res.nodes ?? '?'} | TT: ${res.ttHits ?? '?'}`);
 
             if (res.aucunCoup) {
                 self.postMessage({ requestId, aucunCoup: true });
