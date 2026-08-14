@@ -26,6 +26,25 @@ jobs:
       - name: Installer les dépendances npm
         run: npm install
 
+      - name: Compiler le moteur IA en WebAssembly (wasm/moteur.c -> www/)
+        uses: emscripten-core/setup-emsdk@v15
+        with:
+          version: 'latest'
+
+      - name: Générer moteur.js / moteur.wasm
+        run: |
+          emcc wasm/moteur.c -O3 \
+            -o www/moteur.js \
+            -s WASM=1 \
+            -s MODULARIZE=1 \
+            -s EXPORT_NAME="CreerMoteurWasm" \
+            -s ENVIRONMENT=worker \
+            -s EXPORTED_FUNCTIONS="['_wasm_calculerMeilleurCoup','_malloc','_free']" \
+            -s EXPORTED_RUNTIME_METHODS="['ccall']" \
+            -s ALLOW_MEMORY_GROWTH=1 \
+            -s SINGLE_FILE=0
+          ls -la www/moteur.js www/moteur.wasm
+
       - name: Ajouter la plateforme Android
         run: npx cap add android
 
