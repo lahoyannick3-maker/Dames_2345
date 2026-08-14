@@ -70,7 +70,7 @@ jobs:
               #    windowSplashScreenBackground en couleur littérale, peu importe la
               #    référence @color/... utilisée par @capacitor/assets.
               contenu = re.sub(
-                  r'(name="windowSplashScreenBackground">)[^<]+(<)',
+                  r'(name="android:windowSplashScreenBackground">)[^<]+(<)',
                   r'\1' + COULEUR + r'\2',
                   contenu
               )
