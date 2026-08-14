@@ -982,7 +982,6 @@ let animationEnCours = false;
 let cibleMouvement = { x: 0, z: 0 };
 let jeuInitialise = false;
 let tempsAnimation = 0;
-let tableTransposition = {};
 let couleurHumain = 'blanc'; 
 const vitesseUnitesParSeconde = 12.0; 
 const horloge = new THREE.Clock();
@@ -1566,62 +1565,84 @@ function finDeTour() {
 // ==========================================
 
 // ==========================================
-// MOTEUR IA — EXÉCUTÉ DANS UN WEB WORKER (thread séparé)
+// MOTEUR IA — WEBASSEMBLY, EXÉCUTÉ DANS UN WEB WORKER (thread séparé)
 // ==========================================
-// Le calcul minimax est lourd (jusqu'à profondeur 7). L'exécuter sur le thread
-// principal gèle le rendu 3D et les taps pendant tout le calcul. On le déplace
-// donc dans un Worker, construit ici en mémoire (via Blob) à partir des mêmes
-// fonctions que celles utilisées par le jeu — un seul fichier HTML, comme avant,
-// et strictement le même calcul (mêmes profondeurs, même algorithme).
+// Le calcul minimax (jusqu'à profondeur 7) est fait par un moteur écrit en C
+// (wasm/moteur.c), compilé en WebAssembly par la CI (voir build.yml) en
+// www/moteur.js + www/moteur.wasm. Le Worker charge ce module via
+// importScripts et lui délègue tout le calcul — bien plus rapide que la
+// version JS pure, et toujours hors du thread principal pour ne jamais geler
+// le rendu 3D ni les taps pendant la réflexion de l'IA.
 let iaWorker = null;
 let iaRequestId = 0;
+
+// Encode le plateau JS ({couleur,estDame} | 0 | null) vers le format plat
+// attendu par le moteur C/WASM : Int8Array de 100 octets, un par case,
+// -1 = vide, 0/1 = pion/dame blanc, 2/3 = pion/dame noir.
+// Ce mapping DOIT rester synchronisé avec depuisFlat() dans wasm/moteur.c.
+function encoderPlateauPourWasm(plat) {
+    const flat = new Int8Array(TAILLE * TAILLE);
+    for (let x = 0; x < TAILLE; x++) {
+        for (let z = 0; z < TAILLE; z++) {
+            const p = plat[x][z];
+            let v = -1;
+            if (p && p !== 0) v = (p.couleur === 'blanc' ? 0 : 2) + (p.estDame ? 1 : 0);
+            flat[x * TAILLE + z] = v;
+        }
+    }
+    return flat;
+}
 
 function creerIAWorker() {
     if (iaWorker) return;
 
-    const fonctionsIA = [
-        clonerPlateau, dansPlateau, getCoupsPion, getCoupsDame, getTousLesCoups,
-        getTousLesCoupsPour, genererClePlateau, evaluerPlateau, minimax, quiescence, appliquerCoupSimule
-    ].map(f => f.toString()).join('\n\n');
+    // URLs absolues résolues sur le thread principal : dans un Worker créé à
+    // partir d'un Blob, self.location pointe vers l'URL blob:, pas vers la
+    // page — on ne peut donc pas laisser Emscripten deviner où se trouve
+    // moteur.wasm. On lui donne l'URL exacte via locateFile.
+    const urlMoteurJs = new URL('moteur.js', document.baseURI).href;
+    const urlMoteurWasm = new URL('moteur.wasm', document.baseURI).href;
 
     const corpsWorker = `
-        const TAILLE = ${TAILLE};
-        const MATRICE_TACTIQUE = ${JSON.stringify(MATRICE_TACTIQUE)};
-        let couleurHumain = 'blanc';
-        let tableTransposition = {};
+        const URL_MOTEUR_WASM = ${JSON.stringify(urlMoteurWasm)};
+        importScripts(${JSON.stringify(urlMoteurJs)});
 
-        ${fonctionsIA}
+        // CreerMoteurWasm est le module Emscripten généré depuis wasm/moteur.c
+        // (voir .github/workflows/build.yml, compilation avec -s EXPORT_NAME).
+        let Module = null;
+        const modulePret = CreerMoteurWasm({
+            locateFile: (chemin) => chemin.endsWith('.wasm') ? URL_MOTEUR_WASM : chemin
+        }).then(m => { Module = m; });
 
-        self.onmessage = function(e) {
-            const { plateau, joueurActuel, modeJeu, couleurHumain: ch, requestId } = e.data;
-            couleurHumain = ch;
-            tableTransposition = {};
+        self.onmessage = async function(e) {
+            const { plateauPlat, joueurActuel, modeJeu, couleurHumain, requestId } = e.data;
+            await modulePret;
 
-            let coups = getTousLesCoupsPour(joueurActuel, plateau);
-            if (coups.length === 0) {
+            const profondeurMax = { 'faible': 1, 'moyen': 3, 'normal': 5, 'expert': 7 }[modeJeu];
+            const codeJoueur = joueurActuel === 'blanc' ? 0 : 1;
+            const codeHumain = couleurHumain === 'blanc' ? 0 : 1;
+
+            const resultJson = Module.ccall(
+                'wasm_calculerMeilleurCoup', 'string',
+                ['array', 'number', 'number', 'number'],
+                [plateauPlat, codeJoueur, profondeurMax, codeHumain]
+            );
+            const res = JSON.parse(resultJson);
+
+            if (res.aucunCoup) {
                 self.postMessage({ requestId, aucunCoup: true });
                 return;
             }
 
-            let meilleurCoup = coups[0];
-            let profondeurMax = { 'faible': 1, 'moyen': 3, 'normal': 5, 'expert': 7 }[modeJeu];
-
-            if (modeJeu === 'faible' && Math.random() < 0.35 && coups.length > 1) {
-                meilleurCoup = coups[Math.floor(Math.random() * coups.length)];
-            } else {
-                let meilleurScore = -Infinity;
-                coups.sort((a, b) => (b.info.nbPrises || 0) - (a.info.nbPrises || 0));
-                for (let c of coups) {
-                    let platSimule = clonerPlateau(plateau);
-                    appliquerCoupSimule(c, platSimule);
-                    let encoreDesPrises = c.info.prise && (c.info.nbPrises > 1);
-                    let score = minimax(platSimule, profondeurMax - 1, encoreDesPrises, -Infinity, Infinity);
-                    if (score > meilleurScore) {
-                        meilleurScore = score;
-                        meilleurCoup = c;
-                    }
+            // Reconstruit un objet meilleurCoup dans le même format que
+            // l'ancienne version JS, pour ne rien changer côté thread principal.
+            const meilleurCoup = {
+                x1: res.x1, z1: res.z1, x2: res.x2, z2: res.z2,
+                info: {
+                    prise: !!res.prise,
+                    pionPris: res.prise ? { x: res.px, z: res.pz } : undefined
                 }
-            }
+            };
             self.postMessage({ requestId, meilleurCoup });
         };
     `;
@@ -1681,171 +1702,16 @@ function tourIA() {
 
     creerIAWorker();
     iaRequestId++;
+    const plateauPlat = encoderPlateauPourWasm(plateau);
     iaWorker.postMessage({
-        plateau,
+        plateauPlat,
         joueurActuel,
         modeJeu,
         couleurHumain,
         requestId: iaRequestId
-    });
+    }, [plateauPlat.buffer]); // transfert zéro-copie du buffer vers le Worker
 }
 
-
-function genererClePlateau(plat) {
-    let cle = "";
-    for (let x = 0; x < TAILLE; x++) {
-        for (let z = 0; z < TAILLE; z++) {
-            let p = plat[x][z];
-            if (p && p !== 0) {
-                cle += `${x}${z}${p.couleur[0]}${p.estDame ? 'D' : 'P'}|`;
-            }
-        }
-    }
-    return cle;
-}
-
-
-function evaluerPlateau(plat) {
-    const couleurIA = (couleurHumain === 'blanc') ? 'noir' : 'blanc';
-    let score = 0;
-    let totalPions = 0;
-
-    for (let x = 0; x < TAILLE; x++) {
-        for (let z = 0; z < TAILLE; z++) {
-            if (plat[x][z] && plat[x][z] !== 0) totalPions++;
-        }
-    }
-    const estFinDePartie = totalPions <= 7;
-
-    for (let x = 0; x < TAILLE; x++) {
-        for (let z = 0; z < TAILLE; z++) {
-            let p = plat[x][z];
-            if (!p || p === 0) continue;
-
-            let valeur = 0;
-            if (p.estDame) {
-                valeur = estFinDePartie ? 3800 : 3200;
-                let distCentre = Math.abs(x - 4.5) + Math.abs(z - 4.5);
-                valeur += (9 - distCentre) * 20;
-            } else {
-                valeur = 1000;
-                valeur += MATRICE_TACTIQUE[x][z] * 100;
-                let avance = (p.couleur === 'noir') ? z : (9 - z);
-                valeur += avance * 40;
-            }
-
-            if (x === 0 || x === 9) valeur += 45;
-
-            if (!estFinDePartie) {
-                if (p.couleur === 'noir' && z === 0) valeur += 90;
-                if (p.couleur === 'blanc' && z === 9) valeur += 90;
-            }
-
-            let dir = p.couleur === 'noir' ? -1 : 1;
-            if (dansPlateau(x - 1, z + dir) && plat[x - 1][z + dir] && plat[x - 1][z + dir].couleur === p.couleur) valeur += 25;
-            if (dansPlateau(x + 1, z + dir) && plat[x + 1][z + dir] && plat[x + 1][z + dir].couleur === p.couleur) valeur += 25;
-
-            score += (p.couleur === couleurIA) ? valeur : -valeur;
-        }
-    }
-    return score;
-}
-
-function minimax(plat, profondeur, estMax, alpha, beta) {
-    let clePlateau = genererClePlateau(plat);
-    if (tableTransposition[clePlateau] !== undefined && tableTransposition[clePlateau].profondeur >= profondeur) {
-        return tableTransposition[clePlateau].score;
-    }
-
-    if (profondeur <= 0) return quiescence(plat, alpha, beta, estMax);
-
-    const couleurIA = (couleurHumain === 'blanc') ? 'noir' : 'blanc';
-    let joueurVirtuel = estMax ? couleurIA : couleurHumain;
-    let coups = getTousLesCoupsPour(joueurVirtuel, plat);
-
-    if (coups.length === 0) return estMax ? -100000 + profondeur : 100000 - profondeur;
-
-    // CORRECTION 3 : Tri des coups à chaque profondeur (Move Ordering).
-    // Permet à l'élagage Alpha-Beta d'éliminer instantanément les mauvaises branches.
-    coups.sort((a, b) => (b.info.nbPrises || 0) - (a.info.nbPrises || 0));
-    let evalFinale;
-
-    if (estMax) {
-        let maxEval = -Infinity;
-        for (let c of coups) {
-            let platSimule = clonerPlateau(plat);
-            appliquerCoupSimule(c, platSimule);
-            let encoreDesPrises = c.info.prise && (c.info.nbPrises > 1);
-            let evalCoup = minimax(platSimule, profondeur - 1, encoreDesPrises, alpha, beta);
-            maxEval = Math.max(maxEval, evalCoup);
-            alpha = Math.max(alpha, evalCoup);
-            if (beta <= alpha) break;
-        }
-        evalFinale = maxEval;
-    } else {
-        let minEval = Infinity;
-        for (let c of coups) {
-            let platSimule = clonerPlateau(plat);
-            appliquerCoupSimule(c, platSimule);
-            let encoreDesPrises = c.info.prise && (c.info.nbPrises > 1);
-            let evalCoup = minimax(platSimule, profondeur - 1, !encoreDesPrises, alpha, beta);
-            minEval = Math.min(minEval, evalCoup);
-            beta = Math.min(beta, evalCoup);
-            if (beta <= alpha) break;
-        }
-        evalFinale = minEval;
-    }
-
-    tableTransposition[clePlateau] = { score: evalFinale, profondeur: profondeur };
-    return evalFinale;
-}
-
-function quiescence(plat, alpha, beta, estMax) {
-    let scoreValeur = evaluerPlateau(plat);
-    if (estMax) {
-        if (scoreValeur >= beta) return beta;
-        alpha = Math.max(alpha, scoreValeur);
-    } else {
-        if (scoreValeur <= alpha) return alpha;
-        beta = Math.min(beta, scoreValeur);
-    }
-
-    const couleurIA = (couleurHumain === 'blanc') ? 'noir' : 'blanc';
-    let joueurVirtuel = estMax ? couleurIA : couleurHumain;
-    let coups = getTousLesCoupsPour(joueurVirtuel, plat).filter(c => c.info.prise);
-
-    for (let c of coups) {
-        let platSimule = clonerPlateau(plat);
-        appliquerCoupSimule(c, platSimule);
-        let evalCoup = quiescence(platSimule, alpha, beta, !estMax);
-        if (estMax) {
-            alpha = Math.max(alpha, evalCoup);
-            if (alpha >= beta) break;
-        } else {
-            beta = Math.min(beta, evalCoup);
-            if (beta <= alpha) break;
-        }
-    }
-    return estMax ? alpha : beta;
-}
-
-function appliquerCoupSimule(coup, plat) {
-    let pionOrigine = plat[coup.x1][coup.z1];
-    if (!pionOrigine) return;
-
-    plat[coup.x2][coup.z2] = {
-        couleur: pionOrigine.couleur,
-        estDame: pionOrigine.estDame
-    };
-    plat[coup.x1][coup.z1] = 0;
-
-    if (coup.info && coup.info.prise && coup.info.pionPris) {
-        plat[coup.info.pionPris.x][coup.info.pionPris.z] = 0;
-    }
-
-    if (plat[coup.x2][coup.z2].couleur === 'blanc' && coup.z2 === 0) plat[coup.x2][coup.z2].estDame = true;
-    if (plat[coup.x2][coup.z2].couleur === 'noir' && coup.z2 === 9) plat[coup.x2][coup.z2].estDame = true;
-}
 
 
 function getTousLesCoupsPour(couleur, plat) {
