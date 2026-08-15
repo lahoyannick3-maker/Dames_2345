@@ -1052,6 +1052,13 @@ function animer() {
 function demarrerJeu(mode) {
     modeJeu = mode;
 
+    // Chaque sélection de mode depuis le menu est une partie neuve et sans
+    // lien avec la précédente : on repart toujours avec l'humain aux Blancs.
+    // (L'échange de couleurs après une défaite ne doit s'appliquer qu'à une
+    // revanche via le bouton "Rejouer", qui appelle resetPartie() directement
+    // sans passer par ici.)
+    couleurHumain = 'blanc';
+
     // L'IA pioche un nouvel avatar parmi ses 3 presets du mode choisi,
     // uniquement à ce moment (lancement depuis le menu). Il reste fixe ensuite
     // même après "Nouvelle partie" ou "Rejouer", jusqu'au prochain passage ici.
@@ -1614,43 +1621,59 @@ function creerIAWorker() {
             locateFile: (chemin) => chemin.endsWith('.wasm') ? URL_MOTEUR_WASM : chemin
         }).then(m => { Module = m; });
 
+        // Dernier requestId reçu : utilisé par self.onerror ci-dessous pour
+        // pouvoir quand même répondre au thread principal si le crash est trop
+        // brutal pour être intercepté par le try/catch de onmessage (ex: erreur
+        // pendant le chargement du module lui-même).
+        let dernierRequestId = null;
+
         self.onmessage = async function(e) {
             const { plateauPlat, joueurActuel, modeJeu, couleurHumain, requestId } = e.data;
-            await modulePret;
+            dernierRequestId = requestId;
 
-            const profondeurMax = { 'faible': 1, 'moyen': 3, 'normal': 5, 'expert': 7 }[modeJeu];
-            const codeJoueur = joueurActuel === 'blanc' ? 0 : 1;
-            const codeHumain = couleurHumain === 'blanc' ? 0 : 1;
+            try {
+                await modulePret;
 
-            const debutCalcul = performance.now();
-            const resultJson = Module.ccall(
-                'wasm_calculerMeilleurCoup', 'string',
-                ['array', 'number', 'number', 'number'],
-                [plateauPlat, codeJoueur, profondeurMax, codeHumain]
-            );
-            const tempsCalculMs = performance.now() - debutCalcul;
-            const res = JSON.parse(resultJson);
+                const profondeurMax = { 'faible': 1, 'moyen': 3, 'normal': 5, 'expert': 7 }[modeJeu];
+                const codeJoueur = joueurActuel === 'blanc' ? 0 : 1;
+                const codeHumain = couleurHumain === 'blanc' ? 0 : 1;
 
-            // Mesure réelle du calcul C/WASM dans le Worker.
-            // Utile pour comparer les modes sur le ZTE Blade A35e sans
-            // modifier le comportement du moteur.
-            console.log(`[IA C/WASM] ${modeJeu}: ${tempsCalculMs.toFixed(1)} ms | nœuds: ${res.nodes ?? '?'} | TT: ${res.ttHits ?? '?'}`);
+                const resultJson = Module.ccall(
+                    'wasm_calculerMeilleurCoup', 'string',
+                    ['array', 'number', 'number', 'number'],
+                    [plateauPlat, codeJoueur, profondeurMax, codeHumain]
+                );
+                const res = JSON.parse(resultJson);
 
-            if (res.aucunCoup) {
-                self.postMessage({ requestId, aucunCoup: true });
-                return;
-            }
-
-            // Reconstruit un objet meilleurCoup dans le même format que
-            // l'ancienne version JS, pour ne rien changer côté thread principal.
-            const meilleurCoup = {
-                x1: res.x1, z1: res.z1, x2: res.x2, z2: res.z2,
-                info: {
-                    prise: !!res.prise,
-                    pionPris: res.prise ? { x: res.px, z: res.pz } : undefined
+                if (res.aucunCoup) {
+                    self.postMessage({ requestId, aucunCoup: true });
+                    return;
                 }
-            };
-            self.postMessage({ requestId, meilleurCoup });
+
+                // Reconstruit un objet meilleurCoup dans le même format que
+                // l'ancienne version JS, pour ne rien changer côté thread principal.
+                const meilleurCoup = {
+                    x1: res.x1, z1: res.z1, x2: res.x2, z2: res.z2,
+                    info: {
+                        prise: !!res.prise,
+                        pionPris: res.prise ? { x: res.px, z: res.pz } : undefined
+                    }
+                };
+                self.postMessage({ requestId, meilleurCoup });
+            } catch (erreur) {
+                // Le calcul WASM a planté (ex: dépassement de pile, trap mémoire).
+                // On prévient le thread principal au lieu de le laisser attendre
+                // indéfiniment une réponse qui ne viendra jamais.
+                self.postMessage({ requestId, erreur: String((erreur && erreur.message) || erreur) });
+            }
+        };
+
+        // Filet de sécurité : erreur non interceptée par le try/catch ci-dessus
+        // (ex: pendant l'initialisation du module WASM lui-même, avant qu'un
+        // onmessage ait pu s'exécuter).
+        self.onerror = function(message) {
+            self.postMessage({ requestId: dernierRequestId, erreur: String(message) });
+            return true; // empêche l'erreur de remonter comme "Uncaught" dans la console
         };
     `;
 
@@ -1659,11 +1682,17 @@ function creerIAWorker() {
     iaWorker = new Worker(url);
 
     iaWorker.onmessage = function(e) {
-        const { requestId, meilleurCoup, aucunCoup } = e.data;
+        const { requestId, meilleurCoup, aucunCoup, erreur } = e.data;
 
         // Réponse obsolète : la partie a changé de mode/état pendant le calcul
         // (ex: retour au menu ou nouvelle partie humaine entre-temps). On l'ignore.
         if (requestId !== iaRequestId || modeJeu === 'humain') return;
+
+        if (erreur) {
+            console.error('Erreur du moteur IA (WASM) :', erreur);
+            gererCrashIA();
+            return;
+        }
 
         if (aucunCoup) {
             const gagnantStr = (couleurHumain === 'blanc') ? "Victoire des Blancs !" : "Victoire des Noirs !";
@@ -1688,6 +1717,32 @@ function creerIAWorker() {
             jouerCoup(meilleurCoup.x1, meilleurCoup.z1, meilleurCoup.x2, meilleurCoup.z2, meilleurCoup.info);
         }, 600);
     };
+
+    // Crash brut du Worker (non intercepté même par son propre self.onerror,
+    // ex: le Worker est tué par le navigateur). On le détruit pour forcer
+    // creerIAWorker() à en recréer un propre au prochain tour.
+    iaWorker.onerror = function(erreurEvent) {
+        console.error('Le Worker IA a crashé :', erreurEvent.message || erreurEvent);
+        iaWorker = null;
+        gererCrashIA();
+    };
+}
+
+// Appelé quand le calcul IA échoue (dépassement de pile, crash WASM, etc.),
+// pour ne jamais laisser la partie bloquée en attente d'une réponse qui ne
+// viendra jamais. On réessaie une fois après un court délai.
+let tentativesRecuperationIA = 0;
+function gererCrashIA() {
+    animationEnCours = false;
+    if (modeJeu === 'humain') { tentativesRecuperationIA = 0; return; }
+
+    tentativesRecuperationIA++;
+    if (tentativesRecuperationIA > 3) {
+        console.error('Échec répété du moteur IA, abandon des tentatives automatiques.');
+        tentativesRecuperationIA = 0;
+        return;
+    }
+    setTimeout(tourIA, 400);
 }
 
 function tourIA() {
