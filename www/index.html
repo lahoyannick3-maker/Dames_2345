@@ -900,7 +900,7 @@ const MATRICE_TACTIQUE = [
 const SEUIL_ERREUR_PRISE = 6;
 const TAILLE = 10;
 const BLANC = 0xf5f5f5;
-const NOIR = 0x2c2c2c;
+const NOIR = 0x45454f;
 const CASE_BLANC = 0xdcc7a0;
 const CASE_NOIR = 0x7a4e2a;
 const SURBRILLANCE = 0x00ff88;
@@ -1079,7 +1079,13 @@ const horloge = new THREE.Clock();
 // déplacement) ou suite à une action utilisateur (zoom/pan, resize). Dès que
 // plus rien ne bouge, la boucle s'arrête d'elle-même.
 let boucleActive = false;
-let besoinRendu = true;
+let besoinRendu = false;
+
+// Le plateau 3D n'est construit qu'au lancement de la première partie.
+let plateau3DCree = false;
+
+// Invalide les reconstructions 3D différées lorsqu'une partie est quittée.
+let generationResetPartie = 0;
 
 function demanderRendu() {
     besoinRendu = true;
@@ -1096,6 +1102,7 @@ function demarrerBoucleSiNecessaire() {
 
 function arreterBoucle() {
     boucleActive = false;
+    besoinRendu = false;
 }
 
 function animer() {
@@ -1174,39 +1181,47 @@ function animer() {
 function demarrerJeu(mode) {
     modeJeu = mode;
 
-    // Chaque sélection de mode depuis le menu est une partie neuve et sans
-    // lien avec la précédente : on repart toujours avec l'humain aux Blancs.
-    // (L'échange de couleurs après une défaite ne doit s'appliquer qu'à une
-    // revanche via le bouton "Rejouer", qui appelle resetPartie() directement
-    // sans passer par ici.)
+    // Chaque sélection de mode depuis le menu est une partie neuve.
     couleurHumain = 'blanc';
 
-    // L'IA pioche un nouvel avatar parmi ses 3 presets du mode choisi,
-    // uniquement à ce moment (lancement depuis le menu). Il reste fixe ensuite
-    // même après "Nouvelle partie" ou "Rejouer", jusqu'au prochain passage ici.
+    // L'IA pioche un nouvel avatar parmi ses 3 presets du mode choisi.
     if (mode !== 'humain' && AVATARS_IA[mode]) {
         const presets = AVATARS_IA[mode];
         avatarIAActuel = presets[Math.floor(Math.random() * presets.length)];
     }
-    
-    // 1. On permute les classes instantanément (le CSS gère le fondu enchaîné de 0.5s)
+
+    // Le canvas 3D ne devient visible qu'au lancement réel d'une partie.
     document.getElementById('menuPrincipal').classList.remove('menu-visible');
     document.body.classList.add('jeu-actif');
-    
-    // 2. On réinitialise la partie et on lance l'animation
-    resetPartie(); 
+    if (renderer && renderer.domElement) {
+        renderer.domElement.style.display = 'block';
+    }
+
+    resetPartie(true);
     demarrerBoucleSiNecessaire();
 }
 
 function retourMenu() {
-    // 1. On cache l'UI du jeu et on réaffiche le menu principal en même temps
+    // Invalide toute reconstruction 3D différée encore en attente.
+    generationResetPartie++;
+
+    // Annule tous les callbacks différés liés à l'ancienne partie et détruit
+    // le Worker IA ainsi que son URL Blob pour libérer ses ressources.
+    annulerTousLesTimersJeu();
+    detruireIAWorker();
+    modeJeu = 'humain';
+
+    // Cache immédiatement le jeu et le canvas 3D.
     document.body.classList.remove('jeu-actif');
     document.getElementById('menuPrincipal').classList.add('menu-visible');
-    
-    // 2. On réinitialise l'état du plateau
-    resetPartie(); 
-    // 3. Plus rien à animer/afficher en 3D pendant qu'on est au menu : on
-    // coupe totalement le rendu pour ne pas consommer de CPU/GPU pour rien.
+    if (renderer && renderer.domElement) {
+        renderer.domElement.style.display = 'none';
+    }
+
+    // Réinitialise uniquement l'état logique : aucune reconstruction 3D au menu.
+    resetPartie(false);
+
+    // Coupe totalement la boucle de rendu 3D.
     arreterBoucle();
 }
 
@@ -1351,6 +1366,8 @@ camera.lookAt(4.5, 0, 4.5);
     renderer.shadowMap.type = THREE.PCFShadowMap;
     document.body.appendChild(renderer.domElement);
     renderer.domElement.style.touchAction = 'none';
+    // Le canvas existe pour préparer Three.js mais reste invisible au splash/menu.
+    renderer.domElement.style.display = 'none';
 
     controls = new THREE.OrbitControls(camera, renderer.domElement);
     controls.target.set(4.5, 0, 4.5);
@@ -1373,12 +1390,29 @@ camera.lookAt(4.5, 0, 4.5);
     raycaster = new THREE.Raycaster();
     mouse = new THREE.Vector2();
 
-    creerPlateau();
-    placerPions();
+    // IMPORTANT : le plateau et les pions ne sont pas créés au démarrage.
+    // Ils seront construits uniquement lors du lancement d'une partie.
 
     renderer.domElement.addEventListener('pointerdown', onPointerDown, false);
     window.addEventListener('resize', onResize);
-    onResize();
+
+    // Configure seulement la caméra et la taille du renderer, sans demander
+    // de frame 3D pendant le splash/menu.
+    const aspectInitial = window.innerWidth / window.innerHeight;
+    const frustumSizeInitial = 12;
+    if (aspectInitial > 1) {
+        camera.left = -frustumSizeInitial * aspectInitial / 2;
+        camera.right = frustumSizeInitial * aspectInitial / 2;
+        camera.top = frustumSizeInitial / 2;
+        camera.bottom = -frustumSizeInitial / 2;
+    } else {
+        camera.left = -frustumSizeInitial / 2;
+        camera.right = frustumSizeInitial / 2;
+        camera.top = (frustumSizeInitial / aspectInitial) / 2;
+        camera.bottom = -(frustumSizeInitial / aspectInitial) / 2;
+    }
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
 }
 
 function creerPion(couleurHex, x, z, estDame = false) {
@@ -1413,6 +1447,20 @@ function creerPion(couleurHex, x, z, estDame = false) {
     groupe.updateMatrixWorld(true);
     scene.add(groupe);
     return groupe;
+}
+
+// scene.remove() ne fait que sortir l'objet du rendu : la géométrie et le
+// matériau restent alloués côté GPU tant qu'on ne les dispose() pas
+// explicitement. Sans ça, chaque prise, promotion en dame ou nouvelle partie
+// laisse des buffers orphelins en VRAM (fuite mémoire sur session longue).
+function disposerPion(groupe) {
+    groupe.traverse(obj => {
+        if (obj.geometry) obj.geometry.dispose();
+        if (obj.material) {
+            if (Array.isArray(obj.material)) obj.material.forEach(m => m.dispose());
+            else obj.material.dispose();
+        }
+    });
 }
 
 function placerPions() {
@@ -1644,6 +1692,7 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
     if (coupInfo.prise) {
         const pionPris = pions3D.find(p => p.userData.x === coupInfo.pionPris.x && p.userData.z === coupInfo.pionPris.z); 
         if (pionPris) {
+            disposerPion(pionPris);
             scene.remove(pionPris);
             pions3D = pions3D.filter(p => p !== pionPris);
         }
@@ -1655,7 +1704,7 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
         if (pionMesh.userData.cheminRestant && pionMesh.userData.cheminRestant.length > 0) {
             const suite = pionMesh.userData.cheminRestant[0];
             rafleEnCours = true; animationEnCours = false; pionSelectionne = pionMesh;
-            setTimeout(() => jouerCoup(xDest, zDest, suite.x, suite.z, suite), 400);
+            programmerTimerJeu('rafleSuite', () => jouerCoup(xDest, zDest, suite.x, suite.z, suite), 400);
             return;
         }
     }
@@ -1665,7 +1714,7 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
         if (nouvellesPrises.length > 0) {
             rafleEnCours = true; animationEnCours = false; pionSelectionne = pionMesh;
             if (modeJeu !== 'humain' && joueurActuel !== couleurHumain) {
-            setTimeout(tourIA, 400);
+            programmerTimerJeu('tourIA', tourIA, 400);
             } else {
                 surlignerCases(nouvellesPrises);
             }
@@ -1678,6 +1727,7 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
         if (!pionMesh.userData.estDame) {
             vibrer('medium');
             plateau[xDest][zDest].estDame = true;
+            disposerPion(pionMesh);
             scene.remove(pionMesh);
             pions3D = pions3D.filter(p => p !== pionMesh);
             const nouveauPion = creerPion(pionMesh.userData.couleurHex, xDest, zDest, true);
@@ -1705,7 +1755,7 @@ function finDeTour() {
     if (checkAucunCoup()) return;
 
     if (modeJeu !== 'humain' && joueurActuel !== couleurHumain) {
-        setTimeout(tourIA, 400);
+        programmerTimerJeu('tourIA', tourIA, 400);
     }
 }
 
@@ -1723,7 +1773,26 @@ function finDeTour() {
 // version JS pure, et toujours hors du thread principal pour ne jamais geler
 // le rendu 3D ni les taps pendant la réflexion de l'IA.
 let iaWorker = null;
+let iaWorkerBlobUrl = null;
 let iaRequestId = 0;
+
+function detruireIAWorker() {
+    iaRequestId++; // invalide immédiatement toute réponse encore en transit
+
+    if (iaWorker) {
+        iaWorker.onmessage = null;
+        iaWorker.onerror = null;
+        iaWorker.onmessageerror = null;
+        try { iaWorker.terminate(); } catch (_) {}
+        iaWorker = null;
+    }
+
+    if (iaWorkerBlobUrl) {
+        URL.revokeObjectURL(iaWorkerBlobUrl);
+        iaWorkerBlobUrl = null;
+    }
+}
+
 
 // Encode le plateau JS ({couleur,estDame} | 0 | null) vers le format plat
 // attendu par le moteur C/WASM : Int8Array de 100 octets, un par case,
@@ -1820,8 +1889,8 @@ function creerIAWorker() {
     `;
 
     const blob = new Blob([corpsWorker], { type: 'application/javascript' });
-    const url = URL.createObjectURL(blob);
-    iaWorker = new Worker(url);
+    iaWorkerBlobUrl = URL.createObjectURL(blob);
+    iaWorker = new Worker(iaWorkerBlobUrl);
 
     iaWorker.onmessage = function(e) {
         const { requestId, meilleurCoup, aucunCoup, erreur } = e.data;
@@ -1853,7 +1922,7 @@ function creerIAWorker() {
         demanderRendu();
 
         // Attendre 600ms pour que le joueur voie où l'IA va jouer, puis déplacer le pion
-        setTimeout(() => {
+        programmerTimerJeu('coupIA', () => {
             animationEnCours = false;
             jouerCoup(meilleurCoup.x1, meilleurCoup.z1, meilleurCoup.x2, meilleurCoup.z2, meilleurCoup.info);
         }, 600);
@@ -1864,7 +1933,7 @@ function creerIAWorker() {
     // creerIAWorker() à en recréer un propre au prochain tour.
     iaWorker.onerror = function(erreurEvent) {
         console.error('Le Worker IA a crashé :', erreurEvent.message || erreurEvent);
-        iaWorker = null;
+        detruireIAWorker();
         gererCrashIA();
     };
 }
@@ -1883,7 +1952,7 @@ function gererCrashIA() {
         tentativesRecuperationIA = 0;
         return;
     }
-    setTimeout(tourIA, 400);
+    programmerTimerJeu('tourIA', tourIA, 400);
 }
 
 function tourIA() {
@@ -1900,7 +1969,7 @@ function tourIA() {
     if (messageDebutActif) fermerMessageDebut();
 
     if (animationEnCours) {
-        setTimeout(tourIA, 200); return; 
+        programmerTimerJeu('tourIA', tourIA, 200); return; 
     }
 
     creerIAWorker();
@@ -1961,7 +2030,7 @@ function surlignerErreur(pion) {
         const couleurOriginale = caseSousPion.material.emissive.getHex();
         caseSousPion.material.emissive.setHex(0xff0000);
         demanderRendu();
-        setTimeout(() => { caseSousPion.material.emissive.setHex(couleurOriginale); demanderRendu(); }, 300);
+        programmerTimerJeu('surbrillanceErreur', () => { caseSousPion.material.emissive.setHex(couleurOriginale); demanderRendu(); }, 300);
     }
 }
 
@@ -2073,6 +2142,41 @@ function fermerMessageDebut() {
 const COULEURS_CONFETTI = ['#e94560', '#f59e0b', '#4364f7', '#10b981', '#ffffff'];
 let timeoutNettoyageConfetti = null;
 
+// ==========================================
+// GESTION CENTRALISÉE DES TIMERS
+// ==========================================
+// Les timers de jeu sont nommés afin de pouvoir les annuler immédiatement
+// lors d'un retour au menu / changement de partie. Cela évite qu'un callback
+// ancien conserve temporairement des références vers l'ancien état du jeu.
+const timersJeu = new Map();
+
+function programmerTimerJeu(nom, callback, delai) {
+    const ancien = timersJeu.get(nom);
+    if (ancien !== undefined) clearTimeout(ancien);
+
+    const id = setTimeout(() => {
+        timersJeu.delete(nom);
+        callback();
+    }, delai);
+
+    timersJeu.set(nom, id);
+    return id;
+}
+
+function annulerTimerJeu(nom) {
+    const id = timersJeu.get(nom);
+    if (id !== undefined) {
+        clearTimeout(id);
+        timersJeu.delete(nom);
+    }
+}
+
+function annulerTousLesTimersJeu() {
+    for (const id of timersJeu.values()) clearTimeout(id);
+    timersJeu.clear();
+}
+
+
 function lancerConfettis(nombre = 40) {
     const conteneur = document.getElementById('confettiContainer');
     if (!conteneur) return;
@@ -2179,26 +2283,45 @@ function checkNulle() {
     return false;
 }
 
-function resetPartie() {
-    // Réinitialisations légères, immédiates (peu coûteuses)
+function resetPartie(reconstruire = true) {
+    // Invalide les reconstructions différées précédentes.
+    const maGeneration = ++generationResetPartie;
+
     jeuInitialise = false; animationEnCours = false; pionEnMouvement = null;
     pionSelectionne = null; caseSelectionnee = null; coupsPossibles = [];
     joueurActuel = 'blanc'; rafleEnCours = false; pionQuiRafle = null; compteurErreurs = 0;
     compteurCoupsNuls = 0;
     document.getElementById('ecranVictoire').style.display = 'none';
     arreterConfettis();
+
     const msg = document.getElementById('messageObligatoire');
     if (msg) msg.style.display = 'none';
     const debutOverlay = document.getElementById('messageDebutTour');
     if (debutOverlay) debutOverlay.style.display = 'none';
     messageDebutActif = false;
 
-    // On laisse le navigateur peindre au moins une image de la transition d'écran
-    // en cours (fondu menu/HUD) avant de reconstruire le plateau 3D, qui est plus
-    // coûteux. Ça évite les saccades/résidus visuels sur les appareils d'entrée de gamme.
+    // Toute réinitialisation invalide les anciens timers de la partie.
+    if (!reconstruire) annulerTousLesTimersJeu();
+
+    // Au menu, aucune reconstruction du plateau 3D.
+    if (!reconstruire) return;
+
+    // Première partie : construction du plateau uniquement maintenant.
+    if (!plateau3DCree) {
+        creerPlateau();
+        plateau3DCree = true;
+    }
+
+    // Laisser le navigateur peindre la transition menu -> jeu avant de
+    // construire les pions, plus coûteux sur les appareils modestes.
     requestAnimationFrame(() => {
         requestAnimationFrame(() => {
-            pions3D.forEach(pion => scene.remove(pion));
+            if (maGeneration !== generationResetPartie ||
+                !document.body.classList.contains('jeu-actif')) {
+                return;
+            }
+
+            pions3D.forEach(pion => { disposerPion(pion); scene.remove(pion); });
             pions3D = [];
 
             plateau = [];
@@ -2216,17 +2339,21 @@ function resetPartie() {
             afficherMessageDebut();
 
             if (modeJeu !== 'humain' && couleurHumain === 'noir') {
-                camera.position.set(4.5, 10, -4.5); 
+                camera.position.set(4.5, 10, -4.5);
             } else {
-                camera.position.set(4.5, 10, 13.5); 
+                camera.position.set(4.5, 10, 13.5);
             }
             camera.lookAt(4.5, 0, 4.5);
             controls.target.set(4.5, 0, 4.5);
             controls.update();
 
-            setTimeout(() => { 
-                jeuInitialise = true; 
-                // Si l'IA doit jouer les Blancs, elle commence tout de suite !
+            programmerTimerJeu('initialisationPartie', () => {
+                if (maGeneration !== generationResetPartie ||
+                    !document.body.classList.contains('jeu-actif')) {
+                    return;
+                }
+
+                jeuInitialise = true;
                 if (modeJeu !== 'humain' && couleurHumain === 'noir') {
                     joueurActuel = 'blanc';
                     tourIA();
@@ -2294,6 +2421,7 @@ function initBoutonRetourAndroid() {
  // Lancement des fonctions principales
 chargerProfils();
 init();
+arreterBoucle();
 gererSplashScreen();
 initBoutonRetourAndroid();
 
