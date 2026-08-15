@@ -650,6 +650,82 @@ h1 {
     transform: translateY(-5px);
     box-shadow: 0 10px 20px rgba(0,0,0,0.3);
 }
+
+/* ===== Animation de victoire (confettis + faisceau + scintillement) =====
+   Tout en CSS pur (transform/opacity, accéléré matériellement) : ça tourne
+   indépendamment du rendu 3D Three.js et ne le ralentit pas. */
+#confettiContainer {
+    position: absolute;
+    top: 0; left: 0; width: 100%; height: 100%;
+    overflow: hidden;
+    pointer-events: none;
+    z-index: 1;
+}
+
+.confetti-piece {
+    position: absolute;
+    top: -20px;
+    width: var(--taille, 8px);
+    height: calc(var(--taille, 8px) * 0.4);
+    background: var(--couleur, #e94560);
+    opacity: 0.9;
+    border-radius: 1px;
+    animation: chute-confetti var(--duree, 3s) linear var(--delai, 0s) 1 forwards;
+    will-change: transform, opacity;
+}
+
+@keyframes chute-confetti {
+    0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0.9; }
+    100% { transform: translate3d(var(--derive, 40px), 115vh, 0) rotate(var(--rotation, 480deg)); opacity: 0.7; }
+}
+
+.faisceau-victoire {
+    position: absolute;
+    top: 0; left: 50%;
+    width: 45%; height: 100%;
+    transform: translateX(-50%);
+    background: linear-gradient(to bottom, rgba(255,255,255,0.35), rgba(255,255,255,0) 70%);
+    filter: blur(6px);
+    animation: pulse-faisceau 2.4s ease-in-out infinite;
+    pointer-events: none;
+    z-index: 0;
+}
+
+@keyframes pulse-faisceau {
+    0%, 100% { opacity: 0.35; }
+    50% { opacity: 0.7; }
+}
+
+#ecranVictoire .contenu-victoire {
+    position: relative;
+    z-index: 2;
+    animation: apparition-victoire 0.5s ease-out;
+}
+
+@keyframes apparition-victoire {
+    0% { opacity: 0; transform: scale(0.85); }
+    100% { opacity: 1; transform: scale(1); }
+}
+
+#texteVictoire {
+    background: linear-gradient(100deg, #fff 30%, #ffd77a 45%, #fff 60%);
+    background-size: 250% 100%;
+    -webkit-background-clip: text;
+    background-clip: text;
+    -webkit-text-fill-color: transparent;
+    animation: scintillement 2.2s linear infinite;
+}
+
+@keyframes scintillement {
+    0% { background-position: 200% 0; }
+    100% { background-position: -50% 0; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+    .confetti-piece, .faisceau-victoire, #ecranVictoire .contenu-victoire, #texteVictoire {
+        animation: none !important;
+    }
+}
 </style>
 <script src="./three.min.js"></script>
 <script src="./OrbitControls.js"></script>
@@ -796,10 +872,14 @@ h1 {
 </div>
 
 <div id="ecranVictoire">
-    <h2 id="texteVictoire" style="font-size: 3em; margin-bottom: 30px; text-shadow: 0 0 10px rgba(0,0,0,0.5);">Victoire !</h2>
-    <div style="display: flex; gap: 20px; justify-content: center;">
-        <button onclick="resetPartie()" class="btn-victoire">Rejouer</button>
-        <button onclick="retourMenu()" class="btn-victoire">Accueil</button>
+    <div id="confettiContainer"></div>
+    <div class="faisceau-victoire"></div>
+    <div class="contenu-victoire">
+        <h2 id="texteVictoire" style="font-size: 3em; margin-bottom: 30px; text-shadow: 0 0 10px rgba(0,0,0,0.5);">Victoire !</h2>
+        <div style="display: flex; gap: 20px; justify-content: center;">
+            <button onclick="resetPartie()" class="btn-victoire">Rejouer</button>
+            <button onclick="retourMenu()" class="btn-victoire">Accueil</button>
+        </div>
     </div>
 </div>
 
@@ -836,6 +916,10 @@ let joueurActuel = 'blanc';
 let rafleEnCours = false;
 let modeJeu = 'humain';
 let messageDebutActif = false;
+// Compteur pour la règle de nulle : nombre de coups consécutifs sans prise
+// ni déplacement de pion (non-dame). Seuil FFJD/FMJD classique : 25 coups.
+let compteurCoupsNuls = 0;
+const SEUIL_NULLE = 25;
 
 // ==========================================
 // AVATARS PERSONNALISABLES
@@ -986,9 +1070,47 @@ let couleurHumain = 'blanc';
 const vitesseUnitesParSeconde = 12.0; 
 const horloge = new THREE.Clock();
 
+// ==========================================
+//  RENDU 3D À LA DEMANDE (perf sur mobile bas de gamme)
+// ==========================================
+// Avant : requestAnimationFrame tournait à l'infini, même au menu ou avec un
+// plateau totalement figé -> rendu GPU à 60fps en continu pour rien.
+// Maintenant : on ne redessine que lors d'une animation de pion (rafle,
+// déplacement) ou suite à une action utilisateur (zoom/pan, resize). Dès que
+// plus rien ne bouge, la boucle s'arrête d'elle-même.
+let boucleActive = false;
+let besoinRendu = true;
+
+function demanderRendu() {
+    besoinRendu = true;
+    demarrerBoucleSiNecessaire();
+}
+
+function demarrerBoucleSiNecessaire() {
+    if (!boucleActive) {
+        boucleActive = true;
+        horloge.getDelta(); // évite un grand deltaTime après une pause
+        requestAnimationFrame(animer);
+    }
+}
+
+function arreterBoucle() {
+    boucleActive = false;
+}
+
 function animer() {
+    const enAnimation = !!pionEnMouvement;
+
+    if (!enAnimation && !besoinRendu) {
+        // Rien à dessiner : on arrête la boucle plutôt que de continuer à
+        // planifier des frames pour rien.
+        boucleActive = false;
+        return;
+    }
+
     requestAnimationFrame(animer);
     const deltaTime = horloge.getDelta();
+    besoinRendu = false;
     
     if (pionEnMouvement) {
         // Initialiser le suivi du temps propre à ce mouvement si ce n'est pas fait
@@ -1073,9 +1195,7 @@ function demarrerJeu(mode) {
     
     // 2. On réinitialise la partie et on lance l'animation
     resetPartie(); 
-    if (!animationEnCours) {
-        animer();
-    }
+    demarrerBoucleSiNecessaire();
 }
 
 function retourMenu() {
@@ -1085,6 +1205,9 @@ function retourMenu() {
     
     // 2. On réinitialise l'état du plateau
     resetPartie(); 
+    // 3. Plus rien à animer/afficher en 3D pendant qu'on est au menu : on
+    // coupe totalement le rendu pour ne pas consommer de CPU/GPU pour rien.
+    arreterBoucle();
 }
 
 
@@ -1164,6 +1287,7 @@ function onResize() {
 
     camera.updateProjectionMatrix();
     renderer.setSize(window.innerWidth, window.innerHeight);
+    demanderRendu();
 }
 
 function onPointerDown(event) {
@@ -1233,6 +1357,9 @@ camera.lookAt(4.5, 0, 4.5);
     controls.enableDamping = true;
     controls.enableRotate = false;
     controls.minZoom = 0.65; controls.maxZoom = 2;
+    // Zoom/pan tactile déclenche un rendu à la demande (utile même si la
+    // boucle est arrêtée, ex: juste après être revenu d'un écran figé).
+    controls.addEventListener('change', demanderRendu);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     const dirLight = new THREE.DirectionalLight(0xffffff, 1);
@@ -1496,6 +1623,7 @@ function jouerCoup(x1, z1, x2, z2, coupInfo) {
     pionEnMouvement = pionMesh;
     cibleMouvement = { x: x2, z: z2 };
     pionEnMouvement.userData.coupEnAttente = coupInfo; 
+    demarrerBoucleSiNecessaire();
 }
 
 function terminerLogiqueCoup(pionMesh, coupInfo) {
@@ -1504,6 +1632,14 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
 
     plateau[xDest][zDest] = plateau[xOrigine][zOrigine];
     plateau[xOrigine][zOrigine] = 0;
+
+    // Compteur de nulle : reset sur prise ou mouvement de pion (non-dame),
+    // incrémenté sinon (déplacement de dame sans prise).
+    if (coupInfo.prise || !pionMesh.userData.estDame) {
+        compteurCoupsNuls = 0;
+    } else {
+        compteurCoupsNuls++;
+    }
 
     if (coupInfo.prise) {
         const pionPris = pions3D.find(p => p.userData.x === coupInfo.pionPris.x && p.userData.z === coupInfo.pionPris.z); 
@@ -1560,8 +1696,14 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
 function finDeTour() {
     rafleEnCours = false; pionQuiRafle = null; caseSelectionnee = null;
     effacerSurbrillance();
+
+    if (checkNulle()) return;
+
     joueurActuel = (joueurActuel === 'blanc') ? 'noir' : 'blanc';
     updateUI();
+
+    if (checkAucunCoup()) return;
+
     if (modeJeu !== 'humain' && joueurActuel !== couleurHumain) {
         setTimeout(tourIA, 400);
     }
@@ -1695,9 +1837,7 @@ function creerIAWorker() {
         }
 
         if (aucunCoup) {
-            const gagnantStr = (couleurHumain === 'blanc') ? "Victoire des Blancs !" : "Victoire des Noirs !";
-            document.getElementById('texteVictoire').textContent = gagnantStr;
-            document.getElementById('ecranVictoire').style.display = 'flex';
+            finirPartie(couleurHumain, null);
             return;
         }
 
@@ -1710,6 +1850,7 @@ function creerIAWorker() {
             obj.userData.z === meilleurCoup.z2
         );
         if (caseCible) caseCible.material.emissive.setHex(SURBRILLANCE);
+        demanderRendu();
 
         // Attendre 600ms pour que le joueur voie où l'IA va jouer, puis déplacer le pion
         setTimeout(() => {
@@ -1809,6 +1950,7 @@ function surlignerCases(coups) {
         });
     }
     surlignerChemin(coups);
+    demanderRendu();
 }
 
 function surlignerErreur(pion) {
@@ -1818,7 +1960,8 @@ function surlignerErreur(pion) {
     if (caseSousPion) {
         const couleurOriginale = caseSousPion.material.emissive.getHex();
         caseSousPion.material.emissive.setHex(0xff0000);
-        setTimeout(() => { caseSousPion.material.emissive.setHex(couleurOriginale); }, 300);
+        demanderRendu();
+        setTimeout(() => { caseSousPion.material.emissive.setHex(couleurOriginale); demanderRendu(); }, 300);
     }
 }
 
@@ -1831,6 +1974,7 @@ function effacerSurbrillance() {
             m.material.emissive.setHex(p.userData.couleur === 'blanc' ? 0x111111 : 0x000000);
         }
     }));
+    demanderRendu();
 }
 
 function dansPlateau(x, z) {
@@ -1923,6 +2067,77 @@ function fermerMessageDebut() {
     messageDebutActif = false;
 }
 
+// Génère une volée de confettis CSS pour l'écran de victoire. Purement
+// DOM/CSS (pas de canvas, pas de boucle JS par frame) : le navigateur gère
+// l'animation via l'accélération matérielle, sans toucher au rendu Three.js.
+const COULEURS_CONFETTI = ['#e94560', '#f59e0b', '#4364f7', '#10b981', '#ffffff'];
+let timeoutNettoyageConfetti = null;
+
+function lancerConfettis(nombre = 40) {
+    const conteneur = document.getElementById('confettiContainer');
+    if (!conteneur) return;
+    conteneur.innerHTML = '';
+
+    const fragment = document.createDocumentFragment();
+    for (let i = 0; i < nombre; i++) {
+        const piece = document.createElement('div');
+        piece.className = 'confetti-piece';
+        const taille = 6 + Math.random() * 6;
+        const duree = 2.5 + Math.random() * 1.8;
+        const delai = Math.random() * 0.6;
+        const derive = (Math.random() - 0.5) * 120;
+        const rotation = 360 + Math.random() * 360;
+        piece.style.left = (Math.random() * 100) + '%';
+        piece.style.setProperty('--taille', taille + 'px');
+        piece.style.setProperty('--duree', duree + 's');
+        piece.style.setProperty('--delai', delai + 's');
+        piece.style.setProperty('--derive', derive + 'px');
+        piece.style.setProperty('--rotation', rotation + 'deg');
+        piece.style.setProperty('--couleur', COULEURS_CONFETTI[i % COULEURS_CONFETTI.length]);
+        fragment.appendChild(piece);
+    }
+    conteneur.appendChild(fragment);
+
+    // Nettoyage après la fin de l'animation la plus longue, pour ne pas
+    // laisser traîner des noeuds DOM inutiles si l'écran reste affiché.
+    clearTimeout(timeoutNettoyageConfetti);
+    timeoutNettoyageConfetti = setTimeout(() => { conteneur.innerHTML = ''; }, 4600);
+}
+
+function arreterConfettis() {
+    clearTimeout(timeoutNettoyageConfetti);
+    const conteneur = document.getElementById('confettiContainer');
+    if (conteneur) conteneur.innerHTML = '';
+}
+
+// Affiche l'écran de fin de partie avec le bon message selon le mode de jeu,
+// et gère l'inversion des couleurs humain/IA en cas de victoire de l'IA.
+// couleurGagnante peut être 'blanc', 'noir', ou null pour une nulle.
+function finirPartie(couleurGagnante, texteHumainVsHumain) {
+    vibrer('success');
+    let gagnantStr = "";
+
+    if (couleurGagnante === null) {
+        gagnantStr = "Partie nulle !";
+    } else if (modeJeu !== 'humain') {
+        if (couleurGagnante === couleurHumain) {
+            gagnantStr = "Félicitations, tu as battu l'IA !";
+            // L'humain a gagné, on ne change rien pour la prochaine partie
+        } else {
+            gagnantStr = "L'IA a triomphé !";
+            // L'IA a gagné -> On inverse les rôles pour la prochaine partie !
+            couleurHumain = (couleurHumain === 'blanc') ? 'noir' : 'blanc';
+        }
+    } else {
+        gagnantStr = texteHumainVsHumain;
+    }
+
+    document.getElementById('texteVictoire').textContent = gagnantStr;
+    document.getElementById('ecranVictoire').style.display = 'flex';
+    lancerConfettis();
+    jeuInitialise = false;
+}
+
 function checkVictoire() {
     let nbBlanc = 0, nbNoir = 0;
     pions3D.forEach(p => {
@@ -1931,29 +2146,37 @@ function checkVictoire() {
     });
 
     if (jeuInitialise && (nbBlanc === 0 || nbNoir === 0)) {
-        vibrer('success');
-        let gagnantStr = "";
-        
-        if (modeJeu !== 'humain') {
-            // Déterminer la couleur gagnante
-            const couleurGagnante = (nbBlanc === 0) ? 'noir' : 'blanc';
-            
-            if (couleurGagnante === couleurHumain) {
-                gagnantStr = "Félicitations, tu as battu l'IA !";
-                // L'humain a gagné, on ne change rien pour la prochaine partie
-            } else {
-                gagnantStr = "L'IA a triomphé !";
-                // L'IA a gagné -> On inverse les rôles pour la prochaine partie !
-                couleurHumain = (couleurHumain === 'blanc') ? 'noir' : 'blanc';
-            }
-        } else {
-            gagnantStr = (nbBlanc === 0) ? "Les Noirs ont triomphé !" : "Les Blancs ont triomphé !";
-        }
-
-        document.getElementById('texteVictoire').textContent = gagnantStr;
-        document.getElementById('ecranVictoire').style.display = 'flex';
-        jeuInitialise = false; 
+        const couleurGagnante = (nbBlanc === 0) ? 'noir' : 'blanc';
+        const texte = (nbBlanc === 0) ? "Les Noirs ont triomphé !" : "Les Blancs ont triomphé !";
+        finirPartie(couleurGagnante, texte);
     }
+}
+
+// Règle du blocage : si le joueur dont c'est le tour n'a plus aucun coup
+// légal (déplacement ou prise), il perd immédiatement.
+function checkAucunCoup() {
+    if (!jeuInitialise) return false;
+    const coups = getTousLesCoupsPour(joueurActuel, plateau);
+    if (coups.length === 0) {
+        const couleurGagnante = (joueurActuel === 'blanc') ? 'noir' : 'blanc';
+        const texte = (joueurActuel === 'blanc')
+            ? "Les Blancs sont bloqués, les Noirs triomphent !"
+            : "Les Noirs sont bloqués, les Blancs triomphent !";
+        finirPartie(couleurGagnante, texte);
+        return true;
+    }
+    return false;
+}
+
+// Règle de la nulle : 25 coups consécutifs sans prise ni déplacement de pion
+// (non-dame) -> partie nulle.
+function checkNulle() {
+    if (!jeuInitialise) return false;
+    if (compteurCoupsNuls >= SEUIL_NULLE) {
+        finirPartie(null, "Partie nulle !");
+        return true;
+    }
+    return false;
 }
 
 function resetPartie() {
@@ -1961,7 +2184,9 @@ function resetPartie() {
     jeuInitialise = false; animationEnCours = false; pionEnMouvement = null;
     pionSelectionne = null; caseSelectionnee = null; coupsPossibles = [];
     joueurActuel = 'blanc'; rafleEnCours = false; pionQuiRafle = null; compteurErreurs = 0;
+    compteurCoupsNuls = 0;
     document.getElementById('ecranVictoire').style.display = 'none';
+    arreterConfettis();
     const msg = document.getElementById('messageObligatoire');
     if (msg) msg.style.display = 'none';
     const debutOverlay = document.getElementById('messageDebutTour');
