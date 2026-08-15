@@ -279,16 +279,28 @@ static void appliquerCoupSimule(CoupComplet coup, Plateau plat) {
     if (plat[coup.x2][coup.z2].couleur == NOIR && coup.z2 == 9) plat[coup.x2][coup.z2].estDame = 1;
 }
 
-/* ---------- Table de transposition : équivalent de l'objet JS tableTransposition ---------- */
-typedef struct TTEntree {
+/* ---------- Table de transposition : équivalent de l'objet JS tableTransposition ----------
+   Auparavant : chaînage avec malloc() par entrée, taille illimitée pendant une
+   recherche. Avec ALLOW_MEMORY_GROWTH=1, le tas WASM grandissait à chaque
+   recherche profonde (Expert) et ne redescendait jamais, même après
+   tableTranspositionReset() — free() rend la mémoire à l'allocateur interne
+   du module WASM, pas à l'OS/au navigateur.
+   Maintenant : tableau statique à adressage direct (une seule case par
+   bucket, pas de chaînage). Alloué une fois pour toutes au chargement du
+   module, taille fixe pour toute la durée de vie du Worker -> l'empreinte
+   mémoire ne bouge plus jamais, quel que soit le nombre de recherches. En
+   cas de collision de hash, l'entrée précédente est simplement écrasée
+   (compromis classique : légèrement moins de hits sur le cache, mais aucun
+   risque de renvoyer un score faux car la clé est toujours revérifiée). */
+typedef struct {
     char cle[300];
     double score;
     int profondeur;
-    struct TTEntree *suivant;
+    int occupee; /* 0 = case vide, 1 = utilisée */
 } TTEntree;
 
 #define TT_TAILLE 65536
-static TTEntree *table[TT_TAILLE];
+static TTEntree table[TT_TAILLE];
 
 static unsigned long hashCle(const char *s) {
     unsigned long h = 5381;
@@ -298,44 +310,29 @@ static unsigned long hashCle(const char *s) {
 }
 
 static void tableTranspositionReset(void) {
-    for (int i = 0; i < TT_TAILLE; i++) {
-        TTEntree *e = table[i];
-        while (e) { TTEntree *next = e->suivant; free(e); e = next; }
-        table[i] = NULL;
-    }
+    memset(table, 0, sizeof(table));
 }
 
 static int tableTranspositionGet(const char *cle, double *score, int profondeurMin) {
     unsigned long h = hashCle(cle) % TT_TAILLE;
-    for (TTEntree *e = table[h]; e; e = e->suivant) {
-        if (strcmp(e->cle, cle) == 0) {
-            if (e->profondeur >= profondeurMin) {
-                *score = e->score;
-                return 1;
-            }
-            return 0;
-        }
+    TTEntree *e = &table[h];
+    if (e->occupee && strcmp(e->cle, cle) == 0 && e->profondeur >= profondeurMin) {
+        *score = e->score;
+        return 1;
     }
     return 0;
 }
 
 static void tableTranspositionSet(const char *cle, double score, int profondeur) {
     unsigned long h = hashCle(cle) % TT_TAILLE;
-    for (TTEntree *e = table[h]; e; e = e->suivant) {
-        if (strcmp(e->cle, cle) == 0) {
-            e->score = score;
-            e->profondeur = profondeur;
-            return;
-        }
-    }
-    TTEntree *e = malloc(sizeof(TTEntree));
+    TTEntree *e = &table[h];
     strncpy(e->cle, cle, sizeof(e->cle) - 1);
     e->cle[sizeof(e->cle) - 1] = '\0';
     e->score = score;
     e->profondeur = profondeur;
-    e->suivant = table[h];
-    table[h] = e;
+    e->occupee = 1;
 }
+
 
 /* ---------- Tri des coups par nbPrises décroissant (Move Ordering), comme coups.sort(...) en JS ---------- */
 static int comparerCoupsNbPrises(const void *a, const void *b) {
