@@ -309,6 +309,11 @@ body { margin: 0; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; over
     box-sizing: border-box;
     color: white;
 }
+/* Quand le Joueur 2 (assis en face) modifie son avatar en cours de partie,
+   tout l'écran est retourné à 180° pour qu'il le lise dans le bon sens. */
+.parametres-card.parametres-retournee {
+    transform: rotate(180deg);
+}
 
 .parametres-header {
     display: flex;
@@ -534,8 +539,13 @@ body.jeu-actif .hud-el {
     border-color: rgba(233,69,96,0.65);
     box-shadow: 0 0 0 3px rgba(233,69,96,0.25), 0 8px 20px rgba(0,0,0,0.35);
 }
+.player-badge { cursor: pointer; }
 .player-badge-top { top: 16px; right: 16px; }
 .player-badge-bottom { bottom: 16px; left: 16px; }
+/* En mode humain vs humain, le badge haut-droite (Joueur 2, assis en face)
+   est retourné à 180° pour qu'il voie son propre avatar et son score dans
+   le bon sens depuis sa position, comme les messages "Prise obligatoire". */
+.player-badge-retourne { transform: rotate(180deg); }
 
 .player-avatar {
     width: 38px; height: 38px;
@@ -603,6 +613,61 @@ body.jeu-actif .hud-el {
 }
 .btn-glass:active { transform: translateY(0) scale(0.96); }
 
+.btn-confirm-non {
+    background: rgba(233,69,96,0.2);
+    border-color: rgba(233,69,96,0.55);
+}
+.btn-confirm-non:hover {
+    background: #e94560;
+    border-color: #e94560;
+    box-shadow: 0 6px 16px rgba(233,69,96,0.4);
+}
+.btn-confirm-oui {
+    background: rgba(46,204,113,0.2);
+    border-color: rgba(46,204,113,0.55);
+}
+.btn-confirm-oui:hover {
+    background: #2ecc71;
+    border-color: #2ecc71;
+    box-shadow: 0 6px 16px rgba(46,204,113,0.4);
+}
+
+.toast-info {
+    position: fixed;
+    left: 50%;
+    bottom: 100px;
+    transform: translateX(-50%) translateY(16px);
+    background: rgba(20,18,40,0.9);
+    color: white;
+    padding: 12px 20px;
+    border-radius: 50px;
+    border: 1px solid rgba(255,255,255,0.15);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    font-size: 0.85em;
+    max-width: 80vw;
+    text-align: center;
+    z-index: 1200;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.25s ease, transform 0.25s ease;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.35);
+}
+.toast-info.toast-visible {
+    opacity: 1;
+    transform: translateX(-50%) translateY(0);
+}
+/* Variante retournée + rapprochée du haut, pour que le Joueur 2 (assis en
+   face, badge en haut-droite) puisse lire le message dans le bon sens. */
+.toast-info.toast-side-j2 {
+    bottom: auto;
+    top: 100px;
+    transform: translateX(-50%) rotate(180deg) translateY(16px);
+}
+.toast-info.toast-side-j2.toast-visible {
+    transform: translateX(-50%) rotate(180deg) translateY(0);
+}
+
 
 h1 { 
     font-size: 4em; margin-bottom: 50px; text-align: center;
@@ -651,7 +716,7 @@ h1 {
     box-shadow: 0 10px 20px rgba(0,0,0,0.3);
 }
 
-/* ===== Animation de victoire (confettis + faisceau + scintillement) =====
+/* ===== Animation de victoire (confettis + scintillement) =====
    Tout en CSS pur (transform/opacity, accéléré matériellement) : ça tourne
    indépendamment du rendu 3D Three.js et ne le ralentit pas. */
 #confettiContainer {
@@ -677,23 +742,6 @@ h1 {
 @keyframes chute-confetti {
     0% { transform: translate3d(0, 0, 0) rotate(0deg); opacity: 0.9; }
     100% { transform: translate3d(var(--derive, 40px), 115vh, 0) rotate(var(--rotation, 480deg)); opacity: 0.7; }
-}
-
-.faisceau-victoire {
-    position: absolute;
-    top: 0; left: 50%;
-    width: 45%; height: 100%;
-    transform: translateX(-50%);
-    background: linear-gradient(to bottom, rgba(255,255,255,0.35), rgba(255,255,255,0) 70%);
-    filter: blur(6px);
-    animation: pulse-faisceau 2.4s ease-in-out infinite;
-    pointer-events: none;
-    z-index: 0;
-}
-
-@keyframes pulse-faisceau {
-    0%, 100% { opacity: 0.35; }
-    50% { opacity: 0.7; }
 }
 
 #ecranVictoire .contenu-victoire {
@@ -722,7 +770,7 @@ h1 {
 }
 
 @media (prefers-reduced-motion: reduce) {
-    .confetti-piece, .faisceau-victoire, #ecranVictoire .contenu-victoire, #texteVictoire {
+    .confetti-piece, #ecranVictoire .contenu-victoire, #texteVictoire {
         animation: none !important;
     }
 }
@@ -794,14 +842,14 @@ h1 {
 </div>
 
 <div id="ecranParametres">
-    <div class="parametres-card">
+    <div class="parametres-card" id="parametresCard">
         <div class="parametres-header">
-            <h2 class="parametres-titre">Avatars</h2>
+            <h2 class="parametres-titre" id="parametresTitre">Avatars</h2>
             <button class="btn-retour-parametres" onclick="fermerParametres()" aria-label="Retour">&#10005;</button>
         </div>
 
         <!-- Profil Joueur 1 -->
-        <div class="profil-bloc">
+        <div class="profil-bloc" id="profilBlocJ1">
             <div class="profil-titre">Joueur 1 (Blancs)</div>
             <div class="profil-apercu">
                 <div class="profil-apercu-avatar" id="apercuJ1Grand"></div>
@@ -816,7 +864,7 @@ h1 {
         </div>
 
         <!-- Profil Joueur 2 -->
-        <div class="profil-bloc">
+        <div class="profil-bloc" id="profilBlocJ2">
             <div class="profil-titre">Joueur 2 (Noirs)</div>
             <div class="profil-apercu">
                 <div class="profil-apercu-avatar" id="apercuJ2Grand"></div>
@@ -835,19 +883,21 @@ h1 {
 </div>
 
 <div id="gameControls" class="hud-el game-controls">
-    <button class="icon-btn" id="btnQuitter" onclick="retourMenu()" title="Quitter" aria-label="Quitter">&#10005;</button>
-    <button class="icon-btn" id="btnNouvellePartie" onclick="resetPartie()" title="Nouvelle partie" aria-label="Nouvelle partie">&#8635;</button>
+    <button class="icon-btn" id="btnQuitter" onclick="demanderConfirmation('Voulez-vous quitter la partie ?', 'Tu quittes maintenant, la partie en cours sera perdue.', '🏳️', retourMenu)" title="Quitter" aria-label="Quitter">&#10005;</button>
+    <button class="icon-btn" id="btnNouvellePartie" onclick="demanderConfirmation('On repart de zéro ?', 'La partie actuelle sera remise à zéro.', '🔄', () => resetPartie())" title="Nouvelle partie" aria-label="Nouvelle partie">&#8635;</button>
 </div>
 
-<div id="avatarTopRight" class="hud-el player-badge player-badge-top">
+<div id="avatarTopRight" class="hud-el player-badge player-badge-top" onclick="onClicAvatarBadge('top')">
     <div class="player-avatar noir"><span id="avatarIconTop">&#129302;</span></div>
     <span class="player-score" id="scoreTop">20</span>
 </div>
 
-<div id="avatarBottomLeft" class="hud-el player-badge player-badge-bottom">
+<div id="avatarBottomLeft" class="hud-el player-badge player-badge-bottom" onclick="onClicAvatarBadge('bottom')">
     <div class="player-avatar blanc"><span id="avatarIconBottom">&#128100;</span></div>
     <span class="player-score" id="scoreBottom">20</span>
 </div>
+
+<div id="toastInfo" class="toast-info"></div>
 
 <div id="messageDebutTour" class="turn-message-overlay">
     <div class="turn-message-card">
@@ -871,9 +921,23 @@ h1 {
 </button>
 </div>
 
+<div id="modalConfirmation" style="display:none; position:fixed; top:50%; left:50%; transform:translate(-50%, -50%);
+     background:rgba(24, 20, 45, 0.8); color:white; padding:24px 28px; border-radius:18px;
+     border:1px solid rgba(255,255,255,0.15);
+     backdrop-filter: blur(16px); -webkit-backdrop-filter: blur(16px);
+     text-align:center; z-index:1001; box-shadow: 0 12px 40px rgba(0,0,0,0.5), 0 0 24px rgba(0,0,0,0.35);
+     max-width: 300px; font-family: 'Segoe UI', sans-serif;">
+    <div style="font-size:2em; margin-bottom:8px;" id="confirmationIcone">🏳️</div>
+    <h3 style="margin-top:0; margin-bottom:8px; color:#fff; letter-spacing:0.5px;" id="confirmationTitre">Voulez-vous quitter la partie ?</h3>
+    <p style="opacity:0.85; font-size:0.95em; margin-bottom:20px;" id="confirmationMessage">Tu quittes maintenant, la partie en cours sera perdue.</p>
+    <div style="display:flex; gap:12px;">
+        <button onclick="annulerConfirmation()" class="btn-glass btn-confirm-non">Non</button>
+        <button onclick="confirmerAction()" class="btn-glass btn-confirm-oui">Oui</button>
+    </div>
+</div>
+
 <div id="ecranVictoire">
     <div id="confettiContainer"></div>
-    <div class="faisceau-victoire"></div>
     <div class="contenu-victoire">
         <h2 id="texteVictoire" style="font-size: 3em; margin-bottom: 30px; text-shadow: 0 0 10px rgba(0,0,0,0.5);">Victoire !</h2>
         <div style="display: flex; gap: 20px; justify-content: center;">
@@ -977,16 +1041,102 @@ function appliquerAvatarSurBadge(avatarDiv, iconSpan, profil) {
 }
 
 // ---------- Ecran Paramètres ----------
+// origineParametres : d'où l'écran a été ouvert ('menu' ou 'jeu'), pour savoir
+// où revenir en fermant. joueurUniqueParametres : si défini ('j1' ou 'j2'),
+// seul ce bloc profil est affiché (édition d'un seul avatar depuis le jeu).
+let origineParametres = 'menu';
+let joueurUniqueParametres = null;
+
 function ouvrirParametres() {
+    origineParametres = 'menu';
+    joueurUniqueParametres = null;
     chargerProfils();
     construireEcranProfil('j1');
     construireEcranProfil('j2');
+    appliquerVisibiliteBlocsProfil();
+    const carte = document.getElementById('parametresCard');
+    if (carte) carte.classList.remove('parametres-retournee');
     document.getElementById('menuPrincipal').classList.remove('menu-visible');
     document.getElementById('ecranParametres').classList.add('parametres-visible');
 }
 
+// Ouvre l'écran paramètres pendant une partie en cours, limité à l'avatar
+// du joueur concerné. Ne fait rien (silencieusement) si les conditions ne
+// sont pas remplies : ces conditions sont déjà vérifiées par l'appelant
+// (onClicAvatarBadge), qui affiche un toast explicatif si besoin.
+function ouvrirParametresJoueur(joueur) {
+    origineParametres = 'jeu';
+    joueurUniqueParametres = joueur;
+    chargerProfils();
+    construireEcranProfil('j1');
+    construireEcranProfil('j2');
+    appliquerVisibiliteBlocsProfil();
+    const titre = document.getElementById('parametresTitre');
+    if (titre) titre.textContent = (joueur === 'j1') ? 'Ton avatar' : 'Avatar Joueur 2';
+    const carte = document.getElementById('parametresCard');
+    if (carte) carte.classList.toggle('parametres-retournee', modeJeu === 'humain' && joueur === 'j2');
+    document.getElementById('ecranParametres').classList.add('parametres-visible');
+}
+
+function appliquerVisibiliteBlocsProfil() {
+    const blocJ1 = document.getElementById('profilBlocJ1');
+    const blocJ2 = document.getElementById('profilBlocJ2');
+    if (origineParametres === 'jeu' && joueurUniqueParametres) {
+        if (blocJ1) blocJ1.style.display = (joueurUniqueParametres === 'j1') ? '' : 'none';
+        if (blocJ2) blocJ2.style.display = (joueurUniqueParametres === 'j2') ? '' : 'none';
+    } else {
+        if (blocJ1) blocJ1.style.display = '';
+        if (blocJ2) blocJ2.style.display = '';
+        const titre = document.getElementById('parametresTitre');
+        if (titre) titre.textContent = 'Avatars';
+    }
+}
+
+// Depuis le jeu : clic sur un badge avatar. 'top'/'bottom' correspond à la
+// position à l'écran, qui est désormais fixe par joueur (voir updateUI) :
+// bas-gauche = Joueur 1 humain, haut-droite = Joueur 2 (ou l'IA, non éditable).
+function onClicAvatarBadge(position) {
+    if (!document.body.classList.contains('jeu-actif')) return;
+
+    if (modeJeu !== 'humain' && position === 'top') {
+        // Avatar de l'IA : aucun profil éditable derrière.
+        return;
+    }
+
+    if (!aucunCoupJoue) {
+        const couleurConcernee = (position === 'bottom') ? 'blanc' : 'noir';
+        afficherToastInfo('Modifiable uniquement avant le premier coup de la partie.', couleurConcernee);
+        return;
+    }
+
+    const joueur = (position === 'bottom') ? 'j1' : 'j2';
+    ouvrirParametresJoueur(joueur);
+}
+
+let toastInfoTimeout = null;
+function afficherToastInfo(texte, couleurConcernee) {
+    const toast = document.getElementById('toastInfo');
+    if (!toast) return;
+    toast.textContent = texte;
+    // Même logique que pour le message "Prise obligatoire" : on retourne et
+    // on rapproche le toast du côté du Joueur 2 en mode humain vs humain.
+    toast.classList.toggle('toast-side-j2', modeJeu === 'humain' && couleurConcernee === 'noir');
+    toast.classList.add('toast-visible');
+    clearTimeout(toastInfoTimeout);
+    toastInfoTimeout = setTimeout(() => toast.classList.remove('toast-visible'), 2400);
+}
+
 function fermerParametres() {
     document.getElementById('ecranParametres').classList.remove('parametres-visible');
+
+    if (origineParametres === 'jeu') {
+        // On revient directement à la partie en cours (le canvas est resté
+        // affiché derrière l'écran paramètres), pas besoin de repasser par le menu.
+        origineParametres = 'menu';
+        joueurUniqueParametres = null;
+        return;
+    }
+
     document.getElementById('menuPrincipal').classList.add('menu-visible');
 }
 
@@ -1066,7 +1216,10 @@ let animationEnCours = false;
 let cibleMouvement = { x: 0, z: 0 };
 let jeuInitialise = false;
 let tempsAnimation = 0;
-let couleurHumain = 'blanc'; 
+let couleurHumain = 'blanc';
+// Vrai tant qu'aucun coup n'a été joué dans la partie en cours (par aucun des
+// deux camps). Conditionne la possibilité de changer d'avatar en jeu.
+let aucunCoupJoue = true;
 const vitesseUnitesParSeconde = 12.0; 
 const horloge = new THREE.Clock();
 
@@ -1227,9 +1380,51 @@ function retourMenu() {
 
 
 
+// En mode humain vs humain, les badges avatars sont placés en coins opposés
+// (Blancs = Joueur 1 en bas-gauche, Noirs = Joueur 2 en haut-droite), ce qui
+// correspond à deux joueurs assis de part et d'autre de l'appareil. Le message
+// "Prise obligatoire" doit donc s'orienter et se rapprocher du joueur concerné
+// pour qu'il puisse le lire, comme c'est déjà naturellement le cas pour les
+// Blancs par défaut.
+function positionnerMessageObligatoire() {
+    const msg = document.getElementById('messageObligatoire');
+    if (!msg) return;
+    if (modeJeu === 'humain' && joueurActuel === 'noir') {
+        msg.style.top = '40%';
+        msg.style.transform = 'translate(-50%, -50%) rotate(180deg)';
+    } else {
+        msg.style.top = '50%';
+        msg.style.transform = 'translate(-50%, -50%)';
+    }
+}
+
 function fermerMessageObligatoire() {
     document.getElementById('messageObligatoire').style.display = 'none';
     compteurErreurs = 0;
+}
+
+// Modale de confirmation générique (Quitter / Nouvelle partie / Retour Android).
+// Reste affichée tant que le joueur n'a pas explicitement choisi Oui ou Non.
+let actionConfirmationEnAttente = null;
+
+function demanderConfirmation(titre, message, icone, callback) {
+    document.getElementById('confirmationTitre').textContent = titre;
+    document.getElementById('confirmationMessage').textContent = message;
+    document.getElementById('confirmationIcone').textContent = icone;
+    actionConfirmationEnAttente = callback;
+    document.getElementById('modalConfirmation').style.display = 'block';
+}
+
+function annulerConfirmation() {
+    document.getElementById('modalConfirmation').style.display = 'none';
+    actionConfirmationEnAttente = null;
+}
+
+function confirmerAction() {
+    document.getElementById('modalConfirmation').style.display = 'none';
+    const action = actionConfirmationEnAttente;
+    actionConfirmationEnAttente = null;
+    if (action) action();
 }
 
 function getMousePosition(event) {
@@ -1263,6 +1458,7 @@ function selectionnerPion(pion) {
     if (priseObligatoire) {
       compteurErreurs++;
       if (compteurErreurs >= SEUIL_ERREUR_PRISE) {
+        positionnerMessageObligatoire();
         document.getElementById('messageObligatoire').style.display = 'block';
       }
     }
@@ -1663,6 +1859,7 @@ function jouerCoup(x1, z1, x2, z2, coupInfo) {
     const pionMesh = pions3D.find(p => p.userData.x === x1 && p.userData.z === z1);
     if (!pionMesh) return;
 
+    aucunCoupJoue = false;
     vibrer(coupInfo.prise ? 'heavy' : 'medium');
 
     animationEnCours = true;
@@ -2079,11 +2276,26 @@ function updateUI() {
         if (p.userData.couleur === 'noir') nbNoir++;
     });
 
-    // Score : avatar en haut à droite = Noirs, avatar en bas à gauche = Blancs
+    // Couleur de pion représentée par chaque badge. En mode humain vs humain,
+    // les positions restent fixes par couleur (Noirs en haut, Blancs en bas).
+    // En mode IA, les positions restent fixes par JOUEUR (humain toujours en
+    // bas à gauche, IA toujours en haut à droite) : c'est donc la couleur
+    // associée à chaque badge qui doit suivre couleurHumain, et non l'inverse.
+    // Ça évite que l'avatar humain "saute" de côté quand l'IA gagne et que
+    // les couleurs sont échangées pour la partie suivante.
+    let couleurBadgeTop, couleurBadgeBottom;
+    if (modeJeu === 'humain') {
+        couleurBadgeTop = 'noir';
+        couleurBadgeBottom = 'blanc';
+    } else {
+        couleurBadgeBottom = couleurHumain;
+        couleurBadgeTop = (couleurHumain === 'blanc') ? 'noir' : 'blanc';
+    }
+
     const scoreTop = document.getElementById('scoreTop');
     const scoreBottom = document.getElementById('scoreBottom');
-    if (scoreTop) scoreTop.textContent = nbNoir;
-    if (scoreBottom) scoreBottom.textContent = nbBlanc;
+    if (scoreTop) scoreTop.textContent = (couleurBadgeTop === 'noir') ? nbNoir : nbBlanc;
+    if (scoreBottom) scoreBottom.textContent = (couleurBadgeBottom === 'noir') ? nbNoir : nbBlanc;
 
     // Avatar : profils personnalisés (Joueur 1 / Joueur 2) ou avatar IA du mode en cours
     const avatarDivTop = document.getElementById('avatarTopRight').querySelector('.player-avatar');
@@ -2092,24 +2304,28 @@ function updateUI() {
     const iconBottom = document.getElementById('avatarIconBottom');
     if (iconTop && iconBottom) {
         if (modeJeu === 'humain') {
-            // Haut-droite = Noirs = Joueur 2, Bas-gauche = Blancs = Joueur 1
+            // Haut-droite = Joueur 2, Bas-gauche = Joueur 1 (positions fixes)
             appliquerAvatarSurBadge(avatarDivTop, iconTop, profilJ2);
             appliquerAvatarSurBadge(avatarDivBottom, iconBottom, profilJ1);
         } else {
-            // Le badge correspondant à la couleur de l'humain affiche le profil Joueur 1,
-            // l'autre affiche l'avatar prédéfini de l'IA pour le mode en cours
-            const profilHautCote = (couleurHumain === 'noir') ? profilJ1 : avatarIAActuel;
-            const profilBasCote = (couleurHumain === 'blanc') ? profilJ1 : avatarIAActuel;
-            appliquerAvatarSurBadge(avatarDivTop, iconTop, profilHautCote);
-            appliquerAvatarSurBadge(avatarDivBottom, iconBottom, profilBasCote);
+            // L'humain reste toujours en bas à gauche, l'IA toujours en haut à
+            // droite, quelle que soit la couleur de pions attribuée.
+            appliquerAvatarSurBadge(avatarDivTop, iconTop, avatarIAActuel);
+            appliquerAvatarSurBadge(avatarDivBottom, iconBottom, profilJ1);
         }
     }
 
-    // Met en évidence l'avatar dont c'est le tour
+    // Met en évidence l'avatar dont c'est le tour, en fonction de la couleur
+    // actuellement associée à chaque badge (voir couleurBadgeTop/Bottom ci-dessus).
     const badgeTop = document.getElementById('avatarTopRight');
     const badgeBottom = document.getElementById('avatarBottomLeft');
-    if (badgeTop) badgeTop.classList.toggle('active-turn', joueurActuel === 'noir');
-    if (badgeBottom) badgeBottom.classList.toggle('active-turn', joueurActuel === 'blanc');
+    if (badgeTop) {
+        badgeTop.classList.toggle('active-turn', joueurActuel === couleurBadgeTop);
+        // Retourné uniquement en mode humain vs humain (le badge haut-droite
+        // représente alors un second joueur réel, assis en face).
+        badgeTop.classList.toggle('player-badge-retourne', modeJeu === 'humain');
+    }
+    if (badgeBottom) badgeBottom.classList.toggle('active-turn', joueurActuel === couleurBadgeBottom);
 }
 
 // Construit et affiche le message central "au tour de..." en début de partie
@@ -2187,9 +2403,9 @@ function lancerConfettis(nombre = 40) {
         const piece = document.createElement('div');
         piece.className = 'confetti-piece';
         const taille = 6 + Math.random() * 6;
-        const duree = 2.5 + Math.random() * 1.8;
-        const delai = Math.random() * 0.6;
-        const derive = (Math.random() - 0.5) * 120;
+        const duree = 4.5 + Math.random() * 2.5;
+        const delai = Math.random() * 1.2;
+        const derive = (Math.random() - 0.5) * 140;
         const rotation = 360 + Math.random() * 360;
         piece.style.left = (Math.random() * 100) + '%';
         piece.style.setProperty('--taille', taille + 'px');
@@ -2205,7 +2421,7 @@ function lancerConfettis(nombre = 40) {
     // Nettoyage après la fin de l'animation la plus longue, pour ne pas
     // laisser traîner des noeuds DOM inutiles si l'écran reste affiché.
     clearTimeout(timeoutNettoyageConfetti);
-    timeoutNettoyageConfetti = setTimeout(() => { conteneur.innerHTML = ''; }, 4600);
+    timeoutNettoyageConfetti = setTimeout(() => { conteneur.innerHTML = ''; }, 8200);
 }
 
 function arreterConfettis() {
@@ -2290,7 +2506,7 @@ function resetPartie(reconstruire = true) {
     jeuInitialise = false; animationEnCours = false; pionEnMouvement = null;
     pionSelectionne = null; caseSelectionnee = null; coupsPossibles = [];
     joueurActuel = 'blanc'; rafleEnCours = false; pionQuiRafle = null; compteurErreurs = 0;
-    compteurCoupsNuls = 0;
+    compteurCoupsNuls = 0; aucunCoupJoue = true;
     document.getElementById('ecranVictoire').style.display = 'none';
     arreterConfettis();
 
@@ -2411,7 +2627,7 @@ function initBoutonRetourAndroid() {
         if (parametresOuvert) {
             fermerParametres();
         } else if (enPartie) {
-            retourMenu();
+            demanderConfirmation('Voulez-vous quitter la partie ?', 'Tu quittes maintenant, la partie en cours sera perdue.', '🏳️', retourMenu);
         } else {
             CapApp.exitApp();
         }
