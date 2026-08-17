@@ -470,15 +470,91 @@ body { margin: 0; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; over
     caret-color: transparent;
     cursor: pointer;
     outline: none;
+    position: relative;
 }
 .initiales-input::placeholder {
     color: rgba(255,255,255,0.35);
     text-transform: none;
     letter-spacing: normal;
 }
-.initiales-input:focus {
+ .initiales-input:focus {
     border-color: rgba(233,69,96,0.75);
     box-shadow: 0 0 0 2px rgba(233,69,96,0.18);
+}
+
+/* Curseur visuel du champ d'initiales. Il est indépendant du caret natif
+   (désactivé pour empêcher le clavier Android) et reste donc disponible
+   même lorsque le champ n'est pas réellement focusé. */
+.initiales-input-wrap {
+    position: relative;
+    width: 100%;
+    margin-bottom: 14px;
+}
+.initiales-input-wrap .initiales-input {
+    margin-bottom: 0;
+}
+.initiales-caret {
+    position: absolute;
+    top: 50%;
+    width: 2px;
+    height: 1.25em;
+    border-radius: 2px;
+    background: #ffffff;
+    opacity: 0.35;
+    pointer-events: none;
+    transform: translateY(-50%);
+    transition: left 0.08s ease;
+}
+.initiales-input-wrap.saisie-active .initiales-caret {
+    opacity: 1;
+    animation: initialesCaretBlink 0.9s steps(1, end) infinite;
+}
+@keyframes initialesCaretBlink {
+    0%, 45% { opacity: 1; }
+    46%, 100% { opacity: 0; }
+}
+
+/* Bulle "Copier / Coller" façon clavier Android natif, déclenchée par un
+   appui long sur le champ d'initiales (comme un appui long sur le curseur
+   dans un vrai champ de texte). */
+.initiales-copie-bulle {
+    position: fixed;
+    left: 0;
+    top: 0;
+    transform: translate(-50%, -100%);
+    display: flex;
+    gap: 2px;
+    background: #16213e;
+    border: 1px solid rgba(233,69,96,0.55);
+    border-radius: 10px;
+    padding: 4px;
+    box-shadow: 0 8px 20px rgba(0,0,0,0.5);
+    z-index: 10000;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.12s ease;
+}
+.initiales-copie-bulle.bulle-visible {
+    opacity: 1;
+    pointer-events: auto;
+}
+.initiales-copie-bulle-btn {
+    background: transparent;
+    border: none;
+    color: #ffffff;
+    font-weight: 700;
+    font-size: 0.82rem;
+    padding: 8px 14px;
+    border-radius: 7px;
+    cursor: pointer;
+    white-space: nowrap;
+}
+.initiales-copie-bulle-btn:active {
+    background: rgba(233,69,96,0.3);
+}
+.initiales-copie-bulle-btn:disabled {
+    color: rgba(255,255,255,0.3);
+    cursor: default;
 }
 
 /* Clavier virtuel global : indépendant de la carte des paramètres.
@@ -1012,11 +1088,13 @@ h1 {
                 </div>
             </div>
             <div id="emojiGrilleJ1" class="emoji-grille"></div>
-            <input id="initialesInputJ1" class="initiales-input" type="text" maxlength="2"
-                   value="" placeholder="Ex : JY" autocomplete="off" autocapitalize="characters"
-                   spellcheck="false" readonly inputmode="none" style="display:none;"
-                   onpointerdown="ouvrirClavierInitiales('j1'); return false;"
-                   aria-label="Initiales Joueur 1">
+            <div id="initialesWrapJ1" class="initiales-input-wrap" style="display:none;">
+                <input id="initialesInputJ1" class="initiales-input" type="text" maxlength="2"
+                       value="" placeholder="Ex : JY" autocomplete="off" autocapitalize="characters"
+                       spellcheck="false" readonly inputmode="none"
+                       aria-label="Initiales Joueur 1">
+                <span id="initialesCaretJ1" class="initiales-caret" aria-hidden="true"></span>
+            </div>
             <div id="couleurGrilleJ1" class="couleur-grille"></div>
         </div>
 
@@ -1031,11 +1109,13 @@ h1 {
                 </div>
             </div>
             <div id="emojiGrilleJ2" class="emoji-grille"></div>
-            <input id="initialesInputJ2" class="initiales-input" type="text" maxlength="2"
-                   value="" placeholder="Ex : YL" autocomplete="off" autocapitalize="characters"
-                   spellcheck="false" readonly inputmode="none" style="display:none;"
-                   onpointerdown="ouvrirClavierInitiales('j2'); return false;"
-                   aria-label="Initiales Joueur 2">
+            <div id="initialesWrapJ2" class="initiales-input-wrap" style="display:none;">
+                <input id="initialesInputJ2" class="initiales-input" type="text" maxlength="2"
+                       value="" placeholder="Ex : YL" autocomplete="off" autocapitalize="characters"
+                       spellcheck="false" readonly inputmode="none"
+                       aria-label="Initiales Joueur 2">
+                <span id="initialesCaretJ2" class="initiales-caret" aria-hidden="true"></span>
+            </div>
             <div id="couleurGrilleJ2" class="couleur-grille"></div>
         </div>
 
@@ -1197,6 +1277,16 @@ function chargerProfils() {
         if (j1) profilJ1 = JSON.parse(j1);
         if (j2) profilJ2 = JSON.parse(j2);
     } catch (e) { /* stockage indisponible, on garde les valeurs par défaut */ }
+
+    // Nettoyage défensif : d'anciens profils sauvegardés avant le correctif
+    // peuvent contenir un résidu d'emoji dans un profil de type "initiales"
+    // (voir changerTypeProfil). On les assainit une bonne fois pour toutes.
+    [profilJ1, profilJ2].forEach(profil => {
+        if (profil && profil.type === 'initiales') {
+            const nettoye = (profil.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
+            if (nettoye !== profil.value) profil.value = nettoye;
+        }
+    });
 }
 
 function sauvegarderProfil(joueur) {
@@ -1336,6 +1426,205 @@ function fermerParametres() {
 // à 180°, afin qu'il soit lisible depuis son côté de la table.
 const LETTRES_CLAVIER_INITIALES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 let joueurClavierInitialesActif = null;
+// Position réelle du curseur (index 0..longueur) dans le champ d'initiales
+// de chaque joueur. Contrairement au caret natif (désactivé), cette position
+// est explicitement suivie pour permettre d'insérer/effacer une lettre à un
+// endroit précis, et pas seulement à la fin de la saisie.
+let curseurPositionInitiales = { j1: 0, j2: 0 };
+
+// Sur certains WebView Android, un tap simple (sans déplacement) sur un
+// <input readonly> ne déclenche pas 'pointerdown'/'click' de façon fiable
+// (le champ intercepte nativement le tap pour son propre placement de
+// caret/sélection), alors qu'un glisser (drag) passe bien par ces events.
+// 'touchstart' est l'événement le plus précoce et le plus fiable sur
+// Android pour capter n'importe quel contact, tap ou glisser : on l'utilise
+// en priorité, avec preventDefault() pour empêcher le traitement natif du
+// champ de "voler" le geste. 'click' reste en secours pour souris/desktop.
+//
+// Un appui long (comme sur le curseur d'un vrai champ Android) fait
+// apparaître une bulle "Copier / Coller", à l'image du clavier système.
+const DUREE_APPUI_LONG_INITIALES = 500; // ms
+const SEUIL_DEPLACEMENT_APPUI_LONG = 12; // px, au-delà on annule (c'est un glisser)
+let timerAppuiLongInitiales = null;
+let origineAppuiLongInitiales = null;
+let joueurAppuiLongInitiales = null;
+
+function demarrerAppuiLongInitiales(joueur, x, y) {
+    annulerAppuiLongInitiales();
+    joueurAppuiLongInitiales = joueur;
+    origineAppuiLongInitiales = { x, y };
+    timerAppuiLongInitiales = setTimeout(() => {
+        afficherBulleCopierCollerInitiales(joueur, x, y);
+        vibrer('medium');
+    }, DUREE_APPUI_LONG_INITIALES);
+}
+
+function verifierDeplacementAppuiLongInitiales(x, y) {
+    if (!origineAppuiLongInitiales) return;
+    const dx = x - origineAppuiLongInitiales.x;
+    const dy = y - origineAppuiLongInitiales.y;
+    if (Math.hypot(dx, dy) > SEUIL_DEPLACEMENT_APPUI_LONG) annulerAppuiLongInitiales();
+}
+
+function annulerAppuiLongInitiales() {
+    if (timerAppuiLongInitiales) {
+        clearTimeout(timerAppuiLongInitiales);
+        timerAppuiLongInitiales = null;
+    }
+    origineAppuiLongInitiales = null;
+}
+
+function initialiserEvenementsChampsInitiales() {
+    ['j1', 'j2'].forEach(joueur => {
+        const input = document.getElementById('initialesInputJ' + joueur.slice(1));
+        if (!input) return;
+
+        input.addEventListener('touchstart', (e) => {
+            const point = e.touches && e.touches[0];
+            if (point) {
+                ouvrirClavierInitiales(joueur, point);
+                demarrerAppuiLongInitiales(joueur, point.clientX, point.clientY);
+            }
+            if (e.cancelable) e.preventDefault();
+        }, { passive: false });
+
+        input.addEventListener('touchmove', (e) => {
+            const point = e.touches && e.touches[0];
+            if (point) verifierDeplacementAppuiLongInitiales(point.clientX, point.clientY);
+        }, { passive: true });
+
+        input.addEventListener('touchend', () => annulerAppuiLongInitiales());
+        input.addEventListener('touchcancel', () => annulerAppuiLongInitiales());
+
+        // Secours souris/desktop (aperçu navigateur).
+        input.addEventListener('click', (e) => {
+            ouvrirClavierInitiales(joueur, e);
+        });
+        input.addEventListener('mousedown', (e) => {
+            demarrerAppuiLongInitiales(joueur, e.clientX, e.clientY);
+        });
+        input.addEventListener('mousemove', (e) => {
+            if (e.buttons) verifierDeplacementAppuiLongInitiales(e.clientX, e.clientY);
+        });
+        input.addEventListener('mouseup', () => annulerAppuiLongInitiales());
+        input.addEventListener('mouseleave', () => annulerAppuiLongInitiales());
+    });
+
+    // Un tap n'importe où en dehors de la bulle la referme, comme sur Android.
+    document.addEventListener('touchstart', (e) => {
+        const bulle = document.getElementById('bulleCopierCollerInitiales');
+        if (bulle && bulle.classList.contains('bulle-visible') && !bulle.contains(e.target)) {
+            masquerBulleCopierCollerInitiales();
+        }
+    }, { passive: true });
+    document.addEventListener('mousedown', (e) => {
+        const bulle = document.getElementById('bulleCopierCollerInitiales');
+        if (bulle && bulle.classList.contains('bulle-visible') && !bulle.contains(e.target)) {
+            masquerBulleCopierCollerInitiales();
+        }
+    });
+}
+initialiserEvenementsChampsInitiales();
+
+// Crée (une seule fois) la bulle flottante Copier/Coller.
+function creerBulleCopierCollerInitiales() {
+    let bulle = document.getElementById('bulleCopierCollerInitiales');
+    if (bulle) return bulle;
+
+    bulle = document.createElement('div');
+    bulle.id = 'bulleCopierCollerInitiales';
+    bulle.className = 'initiales-copie-bulle';
+
+    const btnCopier = document.createElement('button');
+    btnCopier.type = 'button';
+    btnCopier.className = 'initiales-copie-bulle-btn';
+    btnCopier.textContent = 'Copier';
+    btnCopier.addEventListener('click', () => {
+        copierInitiales();
+        masquerBulleCopierCollerInitiales();
+    });
+
+    const btnColler = document.createElement('button');
+    btnColler.type = 'button';
+    btnColler.className = 'initiales-copie-bulle-btn';
+    btnColler.textContent = 'Coller';
+    btnColler.addEventListener('click', () => {
+        collerInitiales();
+        masquerBulleCopierCollerInitiales();
+    });
+
+    bulle.appendChild(btnCopier);
+    bulle.appendChild(btnColler);
+    document.body.appendChild(bulle);
+    return bulle;
+}
+
+// Affiche la bulle près du point d'appui, façon bulle native Android.
+// "Copier" est désactivé si le champ est vide (rien à copier), comme sur
+// le clavier système lorsqu'aucun texte n'est sélectionné/disponible.
+function afficherBulleCopierCollerInitiales(joueur, x, y) {
+    const bulle = creerBulleCopierCollerInitiales();
+    const profil = joueur === 'j1' ? profilJ1 : profilJ2;
+    const btnCopier = bulle.querySelector('.initiales-copie-bulle-btn');
+    if (btnCopier) btnCopier.disabled = !(profil.value || '').length;
+
+    bulle.style.left = x + 'px';
+    bulle.style.top = Math.max(48, y - 16) + 'px';
+    bulle.classList.add('bulle-visible');
+
+    // Repositionne dans l'écran si la bulle dépasse un bord.
+    requestAnimationFrame(() => {
+        const rect = bulle.getBoundingClientRect();
+        let decalX = 0;
+        if (rect.left < 4) decalX = 4 - rect.left;
+        else if (rect.right > window.innerWidth - 4) decalX = (window.innerWidth - 4) - rect.right;
+        if (decalX) bulle.style.left = (x + decalX) + 'px';
+    });
+}
+
+function masquerBulleCopierCollerInitiales() {
+    const bulle = document.getElementById('bulleCopierCollerInitiales');
+    if (bulle) bulle.classList.remove('bulle-visible');
+}
+
+// Calcule le décalage horizontal (en px, relatif au centre du champ) du
+// point situé juste après les `position` premiers caractères de `valeur`,
+// en tenant compte du letter-spacing. Partagé entre l'affichage du curseur
+// et la détection de la position touchée lors d'un clic.
+function decalageCurseurInitiales(ctx, valeur, position, letterSpacing) {
+    if (position <= 0) return 0;
+    const sousChaine = valeur.slice(0, position);
+    return ctx.measureText(sousChaine).width + Math.max(0, position - 1) * letterSpacing;
+}
+
+// Détermine, à partir des coordonnées d'un clic/tap sur le champ, l'index
+// de la position de curseur la plus proche (0 = avant la première lettre,
+// longueur = après la dernière).
+function positionCurseurDepuisClic(input, valeur, clientX) {
+    if (!valeur.length) return 0;
+    const rect = input.getBoundingClientRect();
+    const xRelatif = clientX - rect.left;
+    const style = getComputedStyle(input);
+    const canvas = mettreAJourCurseurInitiales._canvas || (mettreAJourCurseurInitiales._canvas = document.createElement('canvas'));
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return valeur.length;
+
+    ctx.font = style.font;
+    const ls = parseFloat(style.letterSpacing || '0') || 0;
+    const totalWidth = ctx.measureText(valeur).width + Math.max(0, valeur.length - 1) * ls;
+    const x0 = (input.clientWidth / 2) - (totalWidth / 2);
+
+    let meilleurePosition = 0;
+    let meilleureDistance = Infinity;
+    for (let k = 0; k <= valeur.length; k++) {
+        const distance = Math.abs(xRelatif - (x0 + decalageCurseurInitiales(ctx, valeur, k, ls)));
+        if (distance < meilleureDistance) {
+            meilleureDistance = distance;
+            meilleurePosition = k;
+        }
+    }
+    return meilleurePosition;
+}
 
 function initialiserClavierVirtuelInitiales() {
     const clavier = document.getElementById('clavierTouchesInitiales');
@@ -1361,16 +1650,68 @@ function initialiserClavierVirtuelInitiales() {
     btnEffacer.addEventListener('click', effacerDerniereInitiale);
     clavier.appendChild(btnEffacer);
 
+    // Coller : uniquement pour le champ d'initiales (le presse-papier reste
+    // bloqué partout ailleurs dans l'application). Copier se fait désormais
+    // via appui long sur le champ, comme le clavier Android natif.
+    const btnColler = document.createElement('button');
+    btnColler.type = 'button';
+    btnColler.className = 'touche-clavier touche-effacer';
+    btnColler.textContent = '📋';
+    btnColler.setAttribute('aria-label', 'Coller');
+    btnColler.addEventListener('click', collerInitiales);
+    clavier.appendChild(btnColler);
+
     clavier.dataset.construit = '1';
 }
 
-function ouvrirClavierInitiales(joueur) {
+function mettreAJourCurseurInitiales(joueur, actif = null) {
+    const input = document.getElementById('initialesInputJ' + joueur.slice(1));
+    const wrap = document.getElementById('initialesWrapJ' + joueur.slice(1));
+    const caret = document.getElementById('initialesCaretJ' + joueur.slice(1));
+    if (!input || !wrap || !caret) return;
+
+    // Le texte du champ est centré. On mesure sa largeur réelle pour placer
+    // le curseur à sa position réelle (curseurPositionInitiales), et non plus
+    // systématiquement après la dernière initiale, sans utiliser le caret
+    // natif qui ferait apparaître le clavier Android.
+    const value = input.value || '';
+    let position = curseurPositionInitiales[joueur];
+    position = Math.max(0, Math.min(position === undefined ? value.length : position, value.length));
+    curseurPositionInitiales[joueur] = position;
+
+    const style = getComputedStyle(input);
+    const canvas = mettreAJourCurseurInitiales._canvas || (mettreAJourCurseurInitiales._canvas = document.createElement('canvas'));
+    const ctx = canvas.getContext('2d');
+    if (ctx) {
+        ctx.font = style.font;
+        const ls = parseFloat(style.letterSpacing || '0') || 0;
+        const largeur = value.length ? ctx.measureText(value).width + Math.max(0, value.length - 1) * ls : 0;
+        const x0 = (input.clientWidth / 2) - (largeur / 2);
+        const x = x0 + decalageCurseurInitiales(ctx, value, position, ls);
+        caret.style.left = Math.max(8, Math.min(input.clientWidth - 8, x)) + 'px';
+    }
+
+    if (actif === true) wrap.classList.add('saisie-active');
+    else if (actif === false) wrap.classList.remove('saisie-active');
+}
+
+function ouvrirClavierInitiales(joueur, evt) {
     const input = document.getElementById('initialesInputJ' + joueur.slice(1));
     const clavier = document.getElementById('clavierVirtuelInitiales');
     if (!input || !clavier) return;
 
     joueurClavierInitialesActif = joueur;
     initialiserClavierVirtuelInitiales();
+
+    // Si l'utilisateur a touché un point précis du champ (y compris quand le
+    // clavier est déjà ouvert), le curseur se place à cet endroit. Sinon
+    // (ouverture programmatique) il se place à la fin de la saisie actuelle.
+    const valeurActuelle = input.value || '';
+    if (evt && typeof evt.clientX === 'number') {
+        curseurPositionInitiales[joueur] = positionCurseurDepuisClic(input, valeurActuelle, evt.clientX);
+    } else {
+        curseurPositionInitiales[joueur] = valeurActuelle.length;
+    }
 
     const estJ2Retourne = joueur === 'j2' && origineParametres === 'jeu' && modeJeu === 'humain';
     clavier.classList.toggle('clavier-j2', estJ2Retourne);
@@ -1397,6 +1738,7 @@ function ouvrirClavierInitiales(joueur) {
     if (ecranParametres) ecranParametres.scrollTop = 0;
 
     clavier.classList.add('clavier-visible');
+    mettreAJourCurseurInitiales(joueur, true);
 }
 
 function fermerClavierInitiales() {
@@ -1405,7 +1747,10 @@ function fermerClavierInitiales() {
 
     clavier.classList.remove('clavier-visible');
     clavier.setAttribute('aria-hidden', 'true');
+    if (joueurClavierInitialesActif) mettreAJourCurseurInitiales(joueurClavierInitialesActif, false);
     joueurClavierInitialesActif = null;
+    annulerAppuiLongInitiales();
+    masquerBulleCopierCollerInitiales();
 
     const actif = document.activeElement;
     if (actif && actif.classList && actif.classList.contains('initiales-input')) {
@@ -1422,6 +1767,11 @@ function mettreAJourInitialesDepuisClavier(joueur) {
     profil.type = 'initiales';
     profil.value = (profil.value || '').toUpperCase().slice(0, 2);
     input.value = profil.value;
+    // La valeur a pu changer de longueur (insertion/effacement) : on
+    // recadre la position du curseur pour qu'elle reste valide.
+    const posActuelle = curseurPositionInitiales[joueur];
+    curseurPositionInitiales[joueur] = Math.max(0, Math.min(posActuelle === undefined ? profil.value.length : posActuelle, profil.value.length));
+    if (joueurClavierInitialesActif === joueur) mettreAJourCurseurInitiales(joueur, true);
 
     if (apercu) {
         apercu.style.background = profil.couleur;
@@ -1441,7 +1791,12 @@ function saisirLettreClavierInitiales(lettre) {
     const valeur = (profil.value || '').toUpperCase();
     if (valeur.length >= 2) return;
 
-    profil.value = valeur + lettre;
+    // Insertion à la position du curseur (et non systématiquement à la fin).
+    let pos = curseurPositionInitiales[joueur];
+    pos = Math.max(0, Math.min(pos === undefined ? valeur.length : pos, valeur.length));
+
+    profil.value = valeur.slice(0, pos) + lettre + valeur.slice(pos);
+    curseurPositionInitiales[joueur] = pos + 1;
     mettreAJourInitialesDepuisClavier(joueur);
 }
 
@@ -1450,8 +1805,59 @@ function effacerDerniereInitiale() {
     if (!joueur) return;
 
     const profil = joueur === 'j1' ? profilJ1 : profilJ2;
-    profil.value = (profil.value || '').slice(0, -1);
+    const valeur = profil.value || '';
+
+    // Efface le caractère juste avant le curseur (comme un vrai backspace),
+    // et non plus systématiquement le dernier caractère de la chaîne.
+    let pos = curseurPositionInitiales[joueur];
+    pos = Math.max(0, Math.min(pos === undefined ? valeur.length : pos, valeur.length));
+    if (pos === 0) return; // rien à effacer avant le curseur
+
+    profil.value = valeur.slice(0, pos - 1) + valeur.slice(pos);
+    curseurPositionInitiales[joueur] = pos - 1;
     mettreAJourInitialesDepuisClavier(joueur);
+}
+
+// Copie les initiales actuelles du joueur actif dans le presse-papier.
+// Le presse-papier reste bloqué partout ailleurs dans l'application : ce
+// bouton est la seule porte d'entrée/sortie, propre au champ d'initiales.
+function copierInitiales() {
+    const joueur = joueurClavierInitialesActif;
+    if (!joueur) return;
+
+    const profil = joueur === 'j1' ? profilJ1 : profilJ2;
+    const valeur = profil.value || '';
+    if (!valeur) return;
+    if (!navigator.clipboard || !navigator.clipboard.writeText) return;
+
+    navigator.clipboard.writeText(valeur).catch(() => {});
+}
+
+// Colle le contenu du presse-papier à la position du curseur, en ne
+// conservant que des lettres A-Z (et en respectant la limite de 2
+// caractères), comme si chaque lettre valide avait été tapée une à une.
+function collerInitiales() {
+    const joueur = joueurClavierInitialesActif;
+    if (!joueur) return;
+    if (!navigator.clipboard || !navigator.clipboard.readText) return;
+
+    navigator.clipboard.readText().then(texte => {
+        const lettres = (texte || '').toUpperCase().replace(/[^A-Z]/g, '');
+        if (!lettres) return;
+
+        const profil = joueur === 'j1' ? profilJ1 : profilJ2;
+        const valeur = (profil.value || '').toUpperCase();
+        let pos = curseurPositionInitiales[joueur];
+        pos = Math.max(0, Math.min(pos === undefined ? valeur.length : pos, valeur.length));
+
+        const nouvelleValeur = (valeur.slice(0, pos) + lettres + valeur.slice(pos)).slice(0, 2);
+        profil.value = nouvelleValeur;
+        curseurPositionInitiales[joueur] = Math.min(pos + lettres.length, nouvelleValeur.length);
+        mettreAJourInitialesDepuisClavier(joueur);
+    }).catch(() => {
+        // Lecture refusée par l'utilisateur/le système, ou API indisponible :
+        // on ignore silencieusement plutôt que de bloquer l'interface.
+    });
 }
 
 function construireEcranProfil(joueur) {
@@ -1492,7 +1898,9 @@ function construireEcranProfil(joueur) {
     btnEmoji.className = (profil.type === 'emoji') ? 'type-actif' : '';
     btnInitiales.className = (profil.type === 'initiales') ? 'type-actif' : '';
     grilleEmoji.style.display = (profil.type === 'emoji') ? 'grid' : 'none';
-    afficheInitiales.style.display = (profil.type === 'initiales') ? 'block' : 'none';
+    const initialesWrap = document.getElementById('initialesWrapJ' + joueur.slice(1));
+    if (initialesWrap) initialesWrap.style.display = (profil.type === 'initiales') ? 'block' : 'none';
+    mettreAJourCurseurInitiales(joueur, joueurClavierInitialesActif === joueur);
 
     // Si l'écran est reconstruit alors que le clavier concernait cet utilisateur,
     // on le referme pour éviter qu'un ancien contexte reste affiché.
@@ -1510,7 +1918,13 @@ function changerTypeProfil(joueur, type) {
     const profil = (joueur === 'j1') ? profilJ1 : profilJ2;
     profil.type = type;
     if (type === 'emoji' && !EMOJIS_DISPONIBLES.includes(profil.value)) profil.value = EMOJIS_DISPONIBLES[0];
-    if (type === 'initiales' && profil.value.length > 2) profil.value = profil.value.slice(0, 2);
+    // En passant en mode Initiales, on ne garde que des lettres A-Z. Un simple
+    // slice(0,2) ne suffisait pas : un emoji tient souvent sur exactement 2
+    // unités UTF-16 (une paire de substitution), donc profil.value.length > 2
+    // était faux et l'emoji restait tel quel dans le champ. Résultat : le
+    // bouton effacer devait être pressé deux fois pour le faire disparaître
+    // (la première ne retirait qu'une moitié de la paire, laissant un résidu).
+    if (type === 'initiales') profil.value = (profil.value || '').toUpperCase().replace(/[^A-Z]/g, '').slice(0, 2);
     sauvegarderProfil(joueur);
     construireEcranProfil(joueur);
     rafraichirBadgesEnJeu();
