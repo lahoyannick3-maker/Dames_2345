@@ -296,6 +296,13 @@ body { margin: 0; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; over
     opacity: 1;
     visibility: visible;
 }
+/* En mode Joueur 2 pendant une partie, la carte est tournée à 180°.
+   Elle doit être ancrée au bas de la zone disponible, comme si le joueur
+   était assis de l'autre côté de la table. Le clavier virtuel reste, lui,
+   indépendant et conserve sa position fixe en haut. */
+#ecranParametres.parametres-j2 {
+    align-items: flex-end;
+}
 
 .parametres-card {
     width: min(100%, 420px);
@@ -313,6 +320,7 @@ body { margin: 0; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; over
    tout l'écran est retourné à 180° pour qu'il le lise dans le bon sens. */
 .parametres-card.parametres-retournee {
     transform: rotate(180deg);
+    transform-origin: center center;
 }
 
 .parametres-header {
@@ -438,6 +446,151 @@ body { margin: 0; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; over
     -webkit-touch-callout: default;
 }
 .initiales-input::placeholder { color: rgba(255,255,255,0.35); text-transform: none; letter-spacing: normal; }
+
+/* Champ d'initiales : vrai <input>, mais readonly pour empêcher Android
+   d'ouvrir son clavier système. La saisie est faite exclusivement avec notre
+   clavier virtuel, qui peut donc être orienté indépendamment pour le Joueur 2. */
+.initiales-input {
+    width: 100%;
+    box-sizing: border-box;
+    padding: 10px 14px;
+    border-radius: 12px;
+    border: 1px solid rgba(255,255,255,0.15);
+    background: rgba(255,255,255,0.05);
+    color: white;
+    font-size: 1rem;
+    font-weight: 700;
+    text-transform: uppercase;
+    letter-spacing: 2px;
+    margin-bottom: 14px;
+    text-align: center;
+    user-select: none;
+    -webkit-user-select: none;
+    -webkit-touch-callout: none;
+    caret-color: transparent;
+    cursor: pointer;
+    outline: none;
+}
+.initiales-input::placeholder {
+    color: rgba(255,255,255,0.35);
+    text-transform: none;
+    letter-spacing: normal;
+}
+.initiales-input:focus {
+    border-color: rgba(233,69,96,0.75);
+    box-shadow: 0 0 0 2px rgba(233,69,96,0.18);
+}
+
+/* Clavier virtuel global : indépendant de la carte des paramètres.
+   Il se comporte visuellement comme un clavier système qui monte depuis
+   un bord de l'écran, sans jamais être soumis à la rotation de la carte. */
+.clavier-virtuel {
+    position: fixed;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    z-index: 4000;
+    box-sizing: border-box;
+    padding: 8px 8px calc(10px + env(safe-area-inset-bottom, 0px));
+    background: rgba(17, 18, 30, 0.98);
+    border-top: 1px solid rgba(255,255,255,0.12);
+    box-shadow: 0 -14px 35px rgba(0,0,0,0.45);
+    backdrop-filter: blur(14px);
+    -webkit-backdrop-filter: blur(14px);
+    visibility: hidden;
+    opacity: 0;
+    pointer-events: none;
+    transform: translateY(105%);
+    transition: transform 0.22s ease, opacity 0.18s ease, visibility 0s linear 0.22s;
+}
+.clavier-virtuel.clavier-visible {
+    visibility: visible;
+    opacity: 1;
+    pointer-events: auto;
+    transform: translateY(0);
+    transition: transform 0.22s ease, opacity 0.18s ease;
+}
+/* Pour J2, le panneau est physiquement placé du côté opposé de l'écran
+   puis son contenu est retourné à 180°. Il reste ainsi lisible depuis le
+   côté du Joueur 2, contrairement au clavier Android natif. */
+.clavier-virtuel.clavier-j2 {
+    top: 0;
+    bottom: auto;
+    transform: translateY(-105%);
+    padding-top: calc(8px + env(safe-area-inset-top, 0px));
+    padding-bottom: 10px;
+}
+.clavier-virtuel.clavier-j2.clavier-visible {
+    transform: translateY(0);
+}
+.clavier-virtuel-inner {
+    width: min(100%, 520px);
+    margin: 0 auto;
+    transform: rotate(0deg);
+}
+.clavier-virtuel.clavier-j2 .clavier-virtuel-inner {
+    transform: rotate(180deg);
+}
+.clavier-virtuel-entete {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    min-height: 30px;
+    padding: 0 4px 6px;
+}
+.clavier-virtuel-titre {
+    color: rgba(255,255,255,0.72);
+    font-size: 0.72rem;
+    font-weight: 700;
+    letter-spacing: 0.4px;
+}
+.clavier-virtuel-fermer {
+    width: 30px;
+    height: 30px;
+    border: 0;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.08);
+    color: white;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    cursor: pointer;
+}
+.clavier-touches {
+    display: grid;
+    grid-template-columns: repeat(7, minmax(0, 1fr));
+    gap: 6px;
+}
+.touche-clavier {
+    min-width: 0;
+    min-height: clamp(42px, 10vw, 58px);
+    border-radius: 9px;
+    border: 1px solid rgba(255,255,255,0.10);
+    background: rgba(255,255,255,0.08);
+    color: white;
+    font-size: clamp(0.9rem, 3.8vw, 1.08rem);
+    font-weight: 750;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    cursor: pointer;
+    padding: 0;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent;
+    box-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
+}
+.touche-clavier:active {
+    background: rgba(233,69,96,0.28);
+    border-color: rgba(233,69,96,0.8);
+    transform: scale(0.97);
+}
+.touche-effacer {
+    grid-column: span 2;
+    background: rgba(255,255,255,0.12);
+    font-size: 1.15rem;
+}
 
 .couleur-grille {
     display: grid;
@@ -859,7 +1012,11 @@ h1 {
                 </div>
             </div>
             <div id="emojiGrilleJ1" class="emoji-grille"></div>
-            <input id="initialesInputJ1" class="initiales-input" style="display:none;" maxlength="2" placeholder="Ex : JY">
+            <input id="initialesInputJ1" class="initiales-input" type="text" maxlength="2"
+                   value="" placeholder="Ex : JY" autocomplete="off" autocapitalize="characters"
+                   spellcheck="false" readonly inputmode="none" style="display:none;"
+                   onpointerdown="ouvrirClavierInitiales('j1'); return false;"
+                   aria-label="Initiales Joueur 1">
             <div id="couleurGrilleJ1" class="couleur-grille"></div>
         </div>
 
@@ -874,11 +1031,28 @@ h1 {
                 </div>
             </div>
             <div id="emojiGrilleJ2" class="emoji-grille"></div>
-            <input id="initialesInputJ2" class="initiales-input" style="display:none;" maxlength="2" placeholder="Ex : YL">
+            <input id="initialesInputJ2" class="initiales-input" type="text" maxlength="2"
+                   value="" placeholder="Ex : YL" autocomplete="off" autocapitalize="characters"
+                   spellcheck="false" readonly inputmode="none" style="display:none;"
+                   onpointerdown="ouvrirClavierInitiales('j2'); return false;"
+                   aria-label="Initiales Joueur 2">
             <div id="couleurGrilleJ2" class="couleur-grille"></div>
         </div>
 
         <div class="parametres-note">Joueur 2 sert uniquement en mode 2 joueurs. Contre l'IA, tu joues toujours avec l'avatar Joueur 1.</div>
+    </div>
+
+    <!-- Clavier virtuel global : volontairement hors de parametres-card.
+         Cela permet de retourner son contenu indépendamment de la carte J2. -->
+    <div id="clavierVirtuelInitiales" class="clavier-virtuel" aria-hidden="true">
+        <div class="clavier-virtuel-inner">
+            <div class="clavier-virtuel-entete">
+                <span class="clavier-virtuel-titre" id="clavierVirtuelTitre">Initiales</span>
+                <button type="button" class="clavier-virtuel-fermer"
+                        onclick="fermerClavierInitiales()" aria-label="Fermer le clavier">&#10005;</button>
+            </div>
+            <div id="clavierTouchesInitiales" class="clavier-touches"></div>
+        </div>
     </div>
 </div>
 
@@ -1057,7 +1231,8 @@ function ouvrirParametres() {
     const carte = document.getElementById('parametresCard');
     if (carte) carte.classList.remove('parametres-retournee');
     document.getElementById('menuPrincipal').classList.remove('menu-visible');
-    document.getElementById('ecranParametres').classList.add('parametres-visible');
+    const ecranParametres = document.getElementById('ecranParametres');
+    if (ecranParametres) { ecranParametres.scrollTop = 0; ecranParametres.classList.add('parametres-visible'); }
 }
 
 // Ouvre l'écran paramètres pendant une partie en cours, limité à l'avatar
@@ -1073,9 +1248,18 @@ function ouvrirParametresJoueur(joueur) {
     appliquerVisibiliteBlocsProfil();
     const titre = document.getElementById('parametresTitre');
     if (titre) titre.textContent = (joueur === 'j1') ? 'Ton avatar' : 'Avatar Joueur 2';
+    const estJ2Partie = modeJeu === 'humain' && joueur === 'j2';
     const carte = document.getElementById('parametresCard');
-    if (carte) carte.classList.toggle('parametres-retournee', modeJeu === 'humain' && joueur === 'j2');
-    document.getElementById('ecranParametres').classList.add('parametres-visible');
+    if (carte) carte.classList.toggle('parametres-retournee', estJ2Partie);
+    const ecranParametres = document.getElementById('ecranParametres');
+    if (ecranParametres) {
+        // La carte J2 ne doit pas rester ancrée en haut comme la carte J1 :
+        // avec la rotation 180°, cela place son contenu trop haut et laisse
+        // tout l'espace libre sous elle. On ancre uniquement l'écran J2 en bas.
+        ecranParametres.classList.toggle('parametres-j2', estJ2Partie);
+        ecranParametres.scrollTop = 0;
+        ecranParametres.classList.add('parametres-visible');
+    }
 }
 
 function appliquerVisibiliteBlocsProfil() {
@@ -1127,7 +1311,9 @@ function afficherToastInfo(texte, couleurConcernee) {
 }
 
 function fermerParametres() {
-    document.getElementById('ecranParametres').classList.remove('parametres-visible');
+    fermerClavierInitiales();
+    const ecranParametres = document.getElementById('ecranParametres');
+    if (ecranParametres) ecranParametres.classList.remove('parametres-visible', 'parametres-j2');
 
     if (origineParametres === 'jeu') {
         // On revient directement à la partie en cours (le canvas est resté
@@ -1138,6 +1324,134 @@ function fermerParametres() {
     }
 
     document.getElementById('menuPrincipal').classList.add('menu-visible');
+}
+
+// ============================================================
+// CLAVIER VIRTUEL DES INITIALES
+// ============================================================
+// Le champ reste un vrai <input>, mais readonly + inputmode=none : Android
+// ne lance donc jamais son clavier système. Notre clavier est affiché dans
+// une couche fixed indépendante de la carte des paramètres.
+// En partie, J2 reçoit une couche placée en haut et son contenu est retourné
+// à 180°, afin qu'il soit lisible depuis son côté de la table.
+const LETTRES_CLAVIER_INITIALES = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+let joueurClavierInitialesActif = null;
+
+function initialiserClavierVirtuelInitiales() {
+    const clavier = document.getElementById('clavierTouchesInitiales');
+    if (!clavier || clavier.dataset.construit === '1') return;
+
+    clavier.innerHTML = '';
+
+    LETTRES_CLAVIER_INITIALES.forEach(lettre => {
+        const btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'touche-clavier';
+        btn.textContent = lettre;
+        btn.setAttribute('aria-label', 'Lettre ' + lettre);
+        btn.addEventListener('click', () => saisirLettreClavierInitiales(lettre));
+        clavier.appendChild(btn);
+    });
+
+    const btnEffacer = document.createElement('button');
+    btnEffacer.type = 'button';
+    btnEffacer.className = 'touche-clavier touche-effacer';
+    btnEffacer.textContent = '⌫';
+    btnEffacer.setAttribute('aria-label', 'Effacer');
+    btnEffacer.addEventListener('click', effacerDerniereInitiale);
+    clavier.appendChild(btnEffacer);
+
+    clavier.dataset.construit = '1';
+}
+
+function ouvrirClavierInitiales(joueur) {
+    const input = document.getElementById('initialesInputJ' + joueur.slice(1));
+    const clavier = document.getElementById('clavierVirtuelInitiales');
+    if (!input || !clavier) return;
+
+    joueurClavierInitialesActif = joueur;
+    initialiserClavierVirtuelInitiales();
+
+    const estJ2Retourne = joueur === 'j2' && origineParametres === 'jeu' && modeJeu === 'humain';
+    clavier.classList.toggle('clavier-j2', estJ2Retourne);
+    clavier.setAttribute('aria-hidden', 'false');
+
+    const titre = document.getElementById('clavierVirtuelTitre');
+    if (titre) titre.textContent = joueur === 'j2' ? 'Initiales — Joueur 2' : 'Initiales — Joueur 1';
+
+    // IMPORTANT : ne pas appeler focus() ici. Même avec preventScroll, un vrai
+    // <input> peut provoquer un repositionnement automatique du conteneur
+    // #ecranParametres sur Android/WebView. C'est particulièrement visible pour
+    // J2 : la carte retournée se retrouve alors trop basse, tandis que le clavier
+    // fixed reste correctement positionné. Le champ est readonly et n'a donc pas
+    // besoin d'être réellement focusé : les touches du clavier virtuel écrivent
+    // directement dans le profil actif.
+    const actif = document.activeElement;
+    if (actif && actif.classList && actif.classList.contains('initiales-input')) {
+        actif.blur();
+    }
+
+    // On remet la zone paramètres en haut avant d'afficher le panneau clavier.
+    // Cela empêche un éventuel scroll résiduel d'une ouverture précédente.
+    const ecranParametres = document.getElementById('ecranParametres');
+    if (ecranParametres) ecranParametres.scrollTop = 0;
+
+    clavier.classList.add('clavier-visible');
+}
+
+function fermerClavierInitiales() {
+    const clavier = document.getElementById('clavierVirtuelInitiales');
+    if (!clavier) return;
+
+    clavier.classList.remove('clavier-visible');
+    clavier.setAttribute('aria-hidden', 'true');
+    joueurClavierInitialesActif = null;
+
+    const actif = document.activeElement;
+    if (actif && actif.classList && actif.classList.contains('initiales-input')) {
+        actif.blur();
+    }
+}
+
+function mettreAJourInitialesDepuisClavier(joueur) {
+    const profil = joueur === 'j1' ? profilJ1 : profilJ2;
+    const input = document.getElementById('initialesInputJ' + joueur.slice(1));
+    const apercu = document.getElementById('apercu' + joueur.toUpperCase() + 'Grand');
+    if (!input) return;
+
+    profil.type = 'initiales';
+    profil.value = (profil.value || '').toUpperCase().slice(0, 2);
+    input.value = profil.value;
+
+    if (apercu) {
+        apercu.style.background = profil.couleur;
+        apercu.textContent = profil.value;
+        apercu.style.fontSize = '1.1em';
+    }
+
+    sauvegarderProfil(joueur);
+    rafraichirBadgesEnJeu();
+}
+
+function saisirLettreClavierInitiales(lettre) {
+    const joueur = joueurClavierInitialesActif;
+    if (!joueur) return;
+
+    const profil = joueur === 'j1' ? profilJ1 : profilJ2;
+    const valeur = (profil.value || '').toUpperCase();
+    if (valeur.length >= 2) return;
+
+    profil.value = valeur + lettre;
+    mettreAJourInitialesDepuisClavier(joueur);
+}
+
+function effacerDerniereInitiale() {
+    const joueur = joueurClavierInitialesActif;
+    if (!joueur) return;
+
+    const profil = joueur === 'j1' ? profilJ1 : profilJ2;
+    profil.value = (profil.value || '').slice(0, -1);
+    mettreAJourInitialesDepuisClavier(joueur);
 }
 
 function construireEcranProfil(joueur) {
@@ -1165,20 +1479,12 @@ function construireEcranProfil(joueur) {
         grilleCouleur.appendChild(btn);
     });
 
-    // Champ initiales
-    const inputInitiales = document.getElementById('initialesInputJ' + joueur.slice(1));
-    const apercuGrand = document.getElementById('apercu' + joueur.toUpperCase() + 'Grand');
-    inputInitiales.value = (profil.type === 'initiales') ? profil.value : '';
-    inputInitiales.oninput = () => {
-        profil.value = inputInitiales.value.toUpperCase().slice(0, 2);
-        profil.type = 'initiales';
-        sauvegarderProfil(joueur);
-        rafraichirBadgesEnJeu();
-        // Mise à jour immédiate de l'aperçu, sans attendre un clic ailleurs
-        apercuGrand.style.background = profil.couleur;
-        apercuGrand.textContent = profil.value;
-        apercuGrand.style.fontSize = '1.1em';
-    };
+    // Champ d'initiales : vrai <input> readonly.
+    // Le clavier Android natif reste volontairement désactivé ; le clic sur
+    // le champ ouvre notre clavier virtuel global.
+    const afficheInitiales = document.getElementById('initialesInputJ' + joueur.slice(1));
+    const initialesActuelles = (profil.type === 'initiales') ? (profil.value || '') : '';
+    afficheInitiales.value = initialesActuelles;
 
     // Boutons de type Emoji / Initiales
     const btnEmoji = document.getElementById('btnTypeEmojiJ' + joueur.slice(1));
@@ -1186,7 +1492,11 @@ function construireEcranProfil(joueur) {
     btnEmoji.className = (profil.type === 'emoji') ? 'type-actif' : '';
     btnInitiales.className = (profil.type === 'initiales') ? 'type-actif' : '';
     grilleEmoji.style.display = (profil.type === 'emoji') ? 'grid' : 'none';
-    inputInitiales.style.display = (profil.type === 'initiales') ? 'block' : 'none';
+    afficheInitiales.style.display = (profil.type === 'initiales') ? 'block' : 'none';
+
+    // Si l'écran est reconstruit alors que le clavier concernait cet utilisateur,
+    // on le referme pour éviter qu'un ancien contexte reste affiché.
+    if (joueurClavierInitialesActif === joueur) fermerClavierInitiales();
 
     // Aperçu
     const apercu = document.getElementById('apercu' + joueur.toUpperCase() + 'Grand');
@@ -1196,6 +1506,7 @@ function construireEcranProfil(joueur) {
 }
 
 function changerTypeProfil(joueur, type) {
+    fermerClavierInitiales();
     const profil = (joueur === 'j1') ? profilJ1 : profilJ2;
     profil.type = type;
     if (type === 'emoji' && !EMOJIS_DISPONIBLES.includes(profil.value)) profil.value = EMOJIS_DISPONIBLES[0];
@@ -2602,7 +2913,7 @@ function gererSplashScreen() {
 }
 
 // ==========================================
-// BLOCAGE COPIER/COLLER (sauf champ Initiales, géré via CSS user-select: text)
+// BLOCAGE COPIER/COLLER (le champ Initiales est géré par le clavier virtuel)
 // ==========================================
 ['copy', 'cut', 'paste', 'contextmenu', 'selectstart'].forEach(evt => {
     document.addEventListener(evt, (e) => {
@@ -2622,9 +2933,14 @@ function initBoutonRetourAndroid() {
 
     CapApp.addListener('backButton', () => {
         const parametresOuvert = document.getElementById('ecranParametres').classList.contains('parametres-visible');
+        const clavierOuvert = document.getElementById('clavierVirtuelInitiales')?.classList.contains('clavier-visible');
         const enPartie = document.body.classList.contains('jeu-actif');
 
-        if (parametresOuvert) {
+        // Même logique que le clavier système : le premier retour masque
+        // d'abord le clavier, puis un second retour ferme les paramètres.
+        if (parametresOuvert && clavierOuvert) {
+            fermerClavierInitiales();
+        } else if (parametresOuvert) {
             fermerParametres();
         } else if (enPartie) {
             demanderConfirmation('Voulez-vous quitter la partie ?', 'Tu quittes maintenant, la partie en cours sera perdue.', '🏳️', retourMenu);
@@ -2636,6 +2952,7 @@ function initBoutonRetourAndroid() {
 
  // Lancement des fonctions principales
 chargerProfils();
+initialiserClavierVirtuelInitiales();
 init();
 arreterBoucle();
 gererSplashScreen();
