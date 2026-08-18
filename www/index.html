@@ -296,6 +296,21 @@ body { margin: 0; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; over
     opacity: 1;
     visibility: visible;
 }
+/* Le clavier virtuel est position:fixed et recouvre naturellement le bas de
+   l'écran Avatars. Quand il est ouvert, on réserve sa hauteur dans la zone
+   défilable afin que tout le panneau reste accessible sans déplacer le clavier. */
+#ecranParametres.clavier-initiales-ouvert {
+    padding-bottom: calc(40px + var(--hauteur-clavier-initiales, 0px));
+    scroll-padding-bottom: calc(24px + var(--hauteur-clavier-initiales, 0px));
+}
+/* En mode J2 retourné pendant une partie, le clavier est physiquement en haut.
+   On réserve son espace en haut sans modifier sa position ni la rotation de J2. */
+#ecranParametres.clavier-initiales-ouvert.clavier-initiales-j2 {
+    padding-top: calc(24px + var(--hauteur-clavier-initiales, 0px));
+    scroll-padding-top: calc(24px + var(--hauteur-clavier-initiales, 0px));
+    padding-bottom: 40px;
+    scroll-padding-bottom: 24px;
+}
 /* En mode Joueur 2 pendant une partie, la carte est tournée à 180°.
    Elle doit être ancrée au bas de la zone disponible, comme si le joueur
    était assis de l'autre côté de la table. Le clavier virtuel reste, lui,
@@ -1526,6 +1541,20 @@ function initialiserEvenementsChampsInitiales() {
 }
 initialiserEvenementsChampsInitiales();
 
+// La hauteur du clavier virtuel peut varier avec les dimensions de l'écran.
+// On recalcule uniquement l'espace réservé au panneau Avatars ; le clavier
+// et la rotation J2 ne sont jamais déplacés ou modifiés ici.
+window.addEventListener('resize', () => {
+    mettreAJourEspaceClavierInitiales();
+    if (joueurClavierInitialesActif) garantirInitialesVisibles(joueurClavierInitialesActif);
+});
+window.addEventListener('orientationchange', () => {
+    setTimeout(() => {
+        mettreAJourEspaceClavierInitiales();
+        if (joueurClavierInitialesActif) garantirInitialesVisibles(joueurClavierInitialesActif);
+    }, 80);
+});
+
 // Crée (une seule fois) la bulle flottante Copier/Coller.
 function creerBulleCopierCollerInitiales() {
     let bulle = document.getElementById('bulleCopierCollerInitiales');
@@ -1642,9 +1671,6 @@ function initialiserClavierVirtuelInitiales() {
         clavier.appendChild(btn);
     });
 
-    // Le bouton Coller n'est volontairement pas ajouté ici : le collage
-    // passe par la bulle Copier/Coller du champ d'initiales, puis par
-    // Capacitor Clipboard sur Android.
     const btnEffacer = document.createElement('button');
     btnEffacer.type = 'button';
     btnEffacer.className = 'touche-clavier touche-effacer';
@@ -1685,6 +1711,37 @@ function mettreAJourCurseurInitiales(joueur, actif = null) {
 
     if (actif === true) wrap.classList.add('saisie-active');
     else if (actif === false) wrap.classList.remove('saisie-active');
+}
+
+function mettreAJourEspaceClavierInitiales() {
+    const clavier = document.getElementById('clavierVirtuelInitiales');
+    const ecranParametres = document.getElementById('ecranParametres');
+    if (!clavier || !ecranParametres) return;
+
+    const visible = clavier.classList.contains('clavier-visible');
+    const hauteur = visible ? Math.ceil(clavier.getBoundingClientRect().height) : 0;
+
+    ecranParametres.style.setProperty('--hauteur-clavier-initiales', hauteur + 'px');
+    ecranParametres.classList.toggle('clavier-initiales-ouvert', visible);
+    ecranParametres.classList.toggle(
+        'clavier-initiales-j2',
+        visible && clavier.classList.contains('clavier-j2')
+    );
+}
+
+function garantirInitialesVisibles(joueur) {
+    const input = document.getElementById('initialesInputJ' + joueur.slice(1));
+    const ecranParametres = document.getElementById('ecranParametres');
+    if (!input || !ecranParametres) return;
+
+    requestAnimationFrame(() => {
+        mettreAJourEspaceClavierInitiales();
+        requestAnimationFrame(() => {
+            // Le scroll reste dans #ecranParametres : le clavier fixed n'est
+            // jamais déplacé et le champ actif est remonté dans la zone libre.
+            input.scrollIntoView({ block: 'nearest', inline: 'nearest', behavior: 'auto' });
+        });
+    });
 }
 
 function ouvrirClavierInitiales(joueur, evt) {
@@ -1731,6 +1788,8 @@ function ouvrirClavierInitiales(joueur, evt) {
 
     clavier.classList.add('clavier-visible');
     mettreAJourCurseurInitiales(joueur, true);
+    mettreAJourEspaceClavierInitiales();
+    garantirInitialesVisibles(joueur);
 }
 
 function fermerClavierInitiales() {
@@ -1739,6 +1798,7 @@ function fermerClavierInitiales() {
 
     clavier.classList.remove('clavier-visible');
     clavier.setAttribute('aria-hidden', 'true');
+    mettreAJourEspaceClavierInitiales();
     if (joueurClavierInitialesActif) mettreAJourCurseurInitiales(joueurClavierInitialesActif, false);
     joueurClavierInitialesActif = null;
     annulerAppuiLongInitiales();
@@ -1810,79 +1870,61 @@ function effacerDerniereInitiale() {
     mettreAJourInitialesDepuisClavier(joueur);
 }
 
-// ============================================================
-// PRESSE-PAPIER NATIF CAPACITOR POUR LES INITIALES
-// ============================================================
-// En Android/Capacitor, on passe par le plugin officiel Clipboard afin de
-// ne pas dépendre des restrictions du presse-papier du WebView. Le champ
-// reste readonly + inputmode=none : le clavier système Android n'est donc
-// jamais sollicité. En navigateur/aperçu, on conserve navigator.clipboard
-// comme solution de secours.
-function obtenirClipboardCapacitor() {
-    try {
-        return window.Capacitor && window.Capacitor.Plugins
-            ? window.Capacitor.Plugins.Clipboard
-            : null;
-    } catch (e) {
-        return null;
-    }
-}
-
-async function ecrirePressePapierInitiales(valeur) {
-    const Clipboard = obtenirClipboardCapacitor();
-    if (Clipboard && typeof Clipboard.write === 'function') {
-        await Clipboard.write({ string: valeur });
-        return true;
-    }
-
-    if (navigator.clipboard && typeof navigator.clipboard.writeText === 'function') {
-        await navigator.clipboard.writeText(valeur);
-        return true;
-    }
-
-    return false;
-}
-
-async function lirePressePapierInitiales() {
-    const Clipboard = obtenirClipboardCapacitor();
-    if (Clipboard && typeof Clipboard.read === 'function') {
-        const resultat = await Clipboard.read();
-        return resultat && typeof resultat.value === 'string' ? resultat.value : '';
-    }
-
-    if (navigator.clipboard && typeof navigator.clipboard.readText === 'function') {
-        return await navigator.clipboard.readText();
-    }
-
-    return '';
-}
-
 // Copie les initiales actuelles du joueur actif dans le presse-papier.
-// En APK Android, cette fonction utilise le presse-papier natif Capacitor.
+// Le presse-papier reste bloqué partout ailleurs dans l'application : ce
+// bouton est la seule porte d'entrée/sortie, propre au champ d'initiales.
+function getClipboardNatif() {
+    const plugins = window.Capacitor && window.Capacitor.Plugins;
+    return plugins && plugins.Clipboard ? plugins.Clipboard : null;
+}
+
 async function copierInitiales() {
     const joueur = joueurClavierInitialesActif;
     if (!joueur) return;
 
     const profil = joueur === 'j1' ? profilJ1 : profilJ2;
-    const valeur = (profil.value || '').toUpperCase().slice(0, 2);
+    const valeur = profil.value || '';
     if (!valeur) return;
 
     try {
-        await ecrirePressePapierInitiales(valeur);
-    } catch (e) {
-        // Aucun accès au presse-papier disponible : on ne bloque pas le jeu.
+        const clipboard = getClipboardNatif();
+        if (clipboard && typeof clipboard.write === 'function') {
+            await clipboard.write({ string: valeur });
+            return;
+        }
+
+        // Secours pour l'aperçu navigateur / environnement sans plugin natif.
+        if (navigator.clipboard && navigator.clipboard.writeText) {
+            await navigator.clipboard.writeText(valeur);
+        }
+    } catch (_) {
+        // Secours WebView si le plugin natif n'est pas disponible au runtime.
+        try {
+            if (navigator.clipboard && navigator.clipboard.writeText) {
+                await navigator.clipboard.writeText(valeur);
+            }
+        } catch (_) {}
     }
 }
 
 // Colle le contenu du presse-papier à la position du curseur, en ne
-// conservant que des lettres A-Z et en respectant la limite de 2 caractères.
-// En APK Android, la lecture passe par le plugin natif Capacitor Clipboard.
+// conservant que des lettres A-Z (et en respectant la limite de 2
+// caractères), comme si chaque lettre valide avait été tapée une à une.
 async function collerInitiales() {
     const joueur = joueurClavierInitialesActif;
     if (!joueur) return;
 
     try {
-        const texte = await lirePressePapierInitiales();
+        let texte = '';
+        const clipboard = getClipboardNatif();
+
+        if (clipboard && typeof clipboard.read === 'function') {
+            const resultat = await clipboard.read();
+            texte = resultat && typeof resultat.value === 'string' ? resultat.value : '';
+        } else if (navigator.clipboard && navigator.clipboard.readText) {
+            texte = await navigator.clipboard.readText();
+        }
+
         const lettres = (texte || '').toUpperCase().replace(/[^A-Z]/g, '');
         if (!lettres) return;
 
@@ -1895,8 +1937,8 @@ async function collerInitiales() {
         profil.value = nouvelleValeur;
         curseurPositionInitiales[joueur] = Math.min(pos + lettres.length, nouvelleValeur.length);
         mettreAJourInitialesDepuisClavier(joueur);
-    } catch (e) {
-        // Lecture refusée ou indisponible : on ignore sans casser la saisie.
+    } catch (_) {
+        // Lecture refusée ou API indisponible : ne pas bloquer l'interface.
     }
 }
 
