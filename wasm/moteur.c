@@ -4,7 +4,7 @@
    Portage FIDÈLE des fonctions JS suivantes (aucune logique
    modifiée, juste traduite) :
      clonerPlateau, dansPlateau, getCoupsPion, getCoupsDame,
-     getTousLesCoups, getTousLesCoupsPour, genererClePlateau,
+     getTousLesCoups, getTousLesCoupsPour, hash Zobrist,
      evaluerPlateau, minimax, quiescence, appliquerCoupSimule
 
    Représentation du plateau :
@@ -18,6 +18,7 @@
 #include <string.h>
 #include <math.h>
 #include <time.h>
+#include <stdint.h>
 
 #ifdef __EMSCRIPTEN__
 #include <emscripten/emscripten.h>
@@ -74,6 +75,140 @@ static int dansPlateau(int x, int z) {
 
 static void clonerPlateau(Plateau src, Plateau dst) {
     memcpy(dst, src, sizeof(Plateau));
+}
+
+/*
+ * MAKE / UNMAKE
+ * -------------
+ * Le moteur n'a plus besoin de copier les 100 cases du plateau à chaque
+ * branche de l'arbre de recherche. Un coup est appliqué directement sur le
+ * plateau courant puis restauré exactement dans son état précédent.
+ *
+ * On conserve volontairement toutes les informations nécessaires pour que
+ * cette optimisation ne modifie ni les règles ni l'évaluation :
+ * - case d'origine avant le coup
+ * - case de destination avant le coup
+ * - case capturée avant le coup
+ * - présence éventuelle d'une capture
+ *
+ * clonerPlateau() reste présent pour conserver une référence simple du
+ * comportement historique, mais n'est plus utilisé dans la recherche.
+ */
+typedef struct {
+    int x1, z1, x2, z2;
+    int px, pz;
+    int hasCapture;
+    Case originBefore;
+    Case destinationBefore;
+    Case capturedBefore;
+    uint64_t hashBefore;
+} UndoCoup;
+
+/* ---------- Hash Zobrist ----------
+ * Une clé 64 bits déterministe par case et type de pièce.
+ * Elle remplace la construction d'une chaîne de caractères à chaque nœud.
+ * Le générateur est fixe afin que les recherches restent reproductibles.
+ */
+static uint64_t zobrist[TAILLE][TAILLE][4];
+static int zobristInitialise = 0;
+/* Deux composantes supplémentaires pour distinguer le joueur à jouer dans
+ * la table de transposition. Le même plateau peut apparaître avec un côté
+ * différent, notamment à cause des séquences de prises multiples. */
+static uint64_t zobristTour[2];
+
+static uint64_t splitmix64(uint64_t *state) {
+    uint64_t z = (*state += UINT64_C(0x9E3779B97F4A7C15));
+    z = (z ^ (z >> 30)) * UINT64_C(0xBF58476D1CE4E5B9);
+    z = (z ^ (z >> 27)) * UINT64_C(0x94D049BB133111EB);
+    return z ^ (z >> 31);
+}
+
+static inline int indicePiece(Case p) {
+    if (p.couleur == BLANC) return p.estDame ? 1 : 0;
+    if (p.couleur == NOIR)  return p.estDame ? 3 : 2;
+    return -1;
+}
+
+static void initialiserZobrist(void) {
+    if (zobristInitialise) return;
+    uint64_t seed = UINT64_C(0xD4A1E5B7C39F2711);
+    for (int x = 0; x < TAILLE; x++) {
+        for (int z = 0; z < TAILLE; z++) {
+            for (int piece = 0; piece < 4; piece++) {
+                zobrist[x][z][piece] = splitmix64(&seed);
+            }
+        }
+    }
+    zobristTour[0] = splitmix64(&seed);
+    zobristTour[1] = splitmix64(&seed);
+    zobristInitialise = 1;
+}
+
+static uint64_t calculerHashZobrist(Plateau plat) {
+    uint64_t hash = 0;
+    for (int x = 0; x < TAILLE; x++) {
+        for (int z = 0; z < TAILLE; z++) {
+            int piece = indicePiece(plat[x][z]);
+            if (piece >= 0) hash ^= zobrist[x][z][piece];
+        }
+    }
+    return hash;
+}
+
+static inline uint64_t hashAvecPiece(uint64_t hash, int x, int z, Case p) {
+    int piece = indicePiece(p);
+    return piece >= 0 ? (hash ^ zobrist[x][z][piece]) : hash;
+}
+
+static inline void makeMove(const CoupComplet *coup, Plateau plat, uint64_t *hash, UndoCoup *undo) {
+    undo->x1 = coup->x1;
+    undo->z1 = coup->z1;
+    undo->x2 = coup->x2;
+    undo->z2 = coup->z2;
+    undo->px = coup->info.px;
+    undo->pz = coup->info.pz;
+    undo->hasCapture = coup->info.prise ? 1 : 0;
+    undo->originBefore = plat[coup->x1][coup->z1];
+    undo->destinationBefore = plat[coup->x2][coup->z2];
+    undo->capturedBefore = undo->hasCapture
+        ? plat[coup->info.px][coup->info.pz]
+        : (Case){ VIDE, 0 };
+    undo->hashBefore = *hash;
+
+    Case pionOrigine = undo->originBefore;
+    if (pionOrigine.couleur == VIDE) return;
+
+    /* Retirer du hash les anciennes pièces affectées par le coup. */
+    *hash = hashAvecPiece(*hash, coup->x1, coup->z1, undo->originBefore);
+    *hash = hashAvecPiece(*hash, coup->x2, coup->z2, undo->destinationBefore);
+    if (undo->hasCapture) {
+        *hash = hashAvecPiece(*hash, coup->info.px, coup->info.pz, undo->capturedBefore);
+    }
+
+    plat[coup->x1][coup->z1] = (Case){ VIDE, 0 };
+    if (undo->hasCapture) {
+        plat[coup->info.px][coup->info.pz] = (Case){ VIDE, 0 };
+    }
+
+    plat[coup->x2][coup->z2] = pionOrigine;
+
+    /* Promotion identique à appliquerCoupSimule(). */
+    if (plat[coup->x2][coup->z2].couleur == BLANC && coup->z2 == 0)
+        plat[coup->x2][coup->z2].estDame = 1;
+    if (plat[coup->x2][coup->z2].couleur == NOIR && coup->z2 == 9)
+        plat[coup->x2][coup->z2].estDame = 1;
+
+    /* Ajouter la pièce finale (pion ou dame après promotion). */
+    *hash = hashAvecPiece(*hash, coup->x2, coup->z2, plat[coup->x2][coup->z2]);
+}
+
+static inline void unmakeMove(Plateau plat, uint64_t *hash, const UndoCoup *undo) {
+    plat[undo->x1][undo->z1] = undo->originBefore;
+    plat[undo->x2][undo->z2] = undo->destinationBefore;
+    if (undo->hasCapture) {
+        plat[undo->px][undo->pz] = undo->capturedBefore;
+    }
+    *hash = undo->hashBefore;
 }
 
 /* ---------- getCoupsPion : équivalent JS getCoupsPion ---------- */
@@ -136,7 +271,7 @@ static int getCoupsDame(int x, int z, Plateau plat, Coup out[MAX_COUPS]) {
 }
 
 /* ---------- getTousLesCoups : équivalent JS getTousLesCoups (calcule nbPrises via récursion) ---------- */
-static int getTousLesCoups(int x, int z, Plateau plat, Coup out[MAX_COUPS]) {
+static int getTousLesCoups(int x, int z, Plateau plat, Coup out[MAX_COUPS], uint64_t *hash) {
     Case pion = plat[x][z];
     if (pion.couleur == VIDE) return 0;
 
@@ -151,14 +286,16 @@ static int getTousLesCoups(int x, int z, Plateau plat, Coup out[MAX_COUPS]) {
             out[n++] = c;
             continue;
         }
-        Plateau temp;
-        clonerPlateau(plat, temp);
-        temp[c.x][c.z] = temp[x][z];
-        temp[x][z] = (Case){ VIDE, 0 };
-        temp[c.px][c.pz] = (Case){ VIDE, 0 };
+        /* Même recherche qu'avant, mais sans copier le plateau. */
+        CoupComplet tempCoup = {
+            .x1 = x, .z1 = z, .x2 = c.x, .z2 = c.z, .info = c
+        };
+        UndoCoup undo;
+        makeMove(&tempCoup, plat, hash, &undo);
 
         Coup chaines[MAX_COUPS];
-        int nChaines = getTousLesCoups(c.x, c.z, temp, chaines);
+        int nChaines = getTousLesCoups(c.x, c.z, plat, chaines, hash);
+        unmakeMove(plat, hash, &undo);
         int maxChaine = 0;
         int auMoinsUnePrise = 0;
         for (int k = 0; k < nChaines; k++) {
@@ -175,7 +312,7 @@ static int getTousLesCoups(int x, int z, Plateau plat, Coup out[MAX_COUPS]) {
 
 /* ---------- getTousLesCoupsPour : équivalent JS getTousLesCoupsPour ---------- */
 #define MAX_COUPS_TOTAL 512
-static int getTousLesCoupsPour(int couleur, Plateau plat, CoupComplet out[MAX_COUPS_TOTAL]) {
+static int getTousLesCoupsPour(int couleur, Plateau plat, CoupComplet out[MAX_COUPS_TOTAL], uint64_t *hash) {
     CoupComplet tous[MAX_COUPS_TOTAL];
     int nTous = 0;
     int aUnePrise = 0;
@@ -185,7 +322,7 @@ static int getTousLesCoupsPour(int couleur, Plateau plat, CoupComplet out[MAX_CO
             Case pion = plat[x][z];
             if (pion.couleur == couleur) {
                 Coup coups[MAX_COUPS];
-                int nc = getTousLesCoups(x, z, plat, coups);
+                int nc = getTousLesCoups(x, z, plat, coups, hash);
                 for (int i = 0; i < nc; i++) {
                     if (coups[i].prise) aUnePrise = 1;
                     tous[nTous++] = (CoupComplet){ .x1 = x, .z1 = z, .x2 = coups[i].x, .z2 = coups[i].z, .info = coups[i] };
@@ -217,22 +354,6 @@ static int getTousLesCoupsPour(int couleur, Plateau plat, CoupComplet out[MAX_CO
         }
     }
     return n;
-}
-
-/* ---------- genererClePlateau : équivalent JS genererClePlateau ---------- */
-static void genererClePlateau(Plateau plat, char *out, size_t outSize) {
-    out[0] = '\0';
-    size_t pos = 0;
-    for (int x = 0; x < TAILLE; x++) {
-        for (int z = 0; z < TAILLE; z++) {
-            Case p = plat[x][z];
-            if (p.couleur != VIDE) {
-                int written = snprintf(out + pos, outSize - pos, "%d%d%c%c|",
-                                        x, z, p.couleur == BLANC ? 'b' : 'n', p.estDame ? 'D' : 'P');
-                if (written > 0) pos += (size_t)written;
-            }
-        }
-    }
 }
 
 /* ---------- evaluerPlateau : équivalent JS evaluerPlateau ---------- */
@@ -297,127 +418,318 @@ static void appliquerCoupSimule(CoupComplet coup, Plateau plat) {
     if (plat[coup.x2][coup.z2].couleur == NOIR && coup.z2 == 9) plat[coup.x2][coup.z2].estDame = 1;
 }
 
-/* ---------- Table de transposition : équivalent de l'objet JS tableTransposition ----------
-   Auparavant : chaînage avec malloc() par entrée, taille illimitée pendant une
-   recherche. Avec ALLOW_MEMORY_GROWTH=1, le tas WASM grandissait à chaque
-   recherche profonde (Expert) et ne redescendait jamais, même après
-   tableTranspositionReset() — free() rend la mémoire à l'allocateur interne
-   du module WASM, pas à l'OS/au navigateur.
-   Maintenant : tableau statique à adressage direct (une seule case par
-   bucket, pas de chaînage). Alloué une fois pour toutes au chargement du
-   module, taille fixe pour toute la durée de vie du Worker -> l'empreinte
-   mémoire ne bouge plus jamais, quel que soit le nombre de recherches. En
-   cas de collision de hash, l'entrée précédente est simplement écrasée
-   (compromis classique : légèrement moins de hits sur le cache, mais aucun
-   risque de renvoyer un score faux car la clé est toujours revérifiée). */
+
+/* ---------- Table de transposition ----------
+ * Étape 3 : bornes Alpha-Beta + meilleur coup.
+ *
+ * Une entrée peut représenter :
+ *   TT_EXACT       : score exact de la position à cette profondeur
+ *   TT_LOWER_BOUND : score >= valeur mémorisée (fail-high)
+ *   TT_UPPER_BOUND : score <= valeur mémorisée (fail-low)
+ *
+ * Le meilleur coup mémorisé sert uniquement à l'ordre de recherche : il est
+ * placé en tête lorsqu'il est encore légal dans la liste de coups courante.
+ * Cela ne change pas les règles ni la profondeur de recherche.
+ */
+typedef enum {
+    TT_EXACT = 1,
+    TT_LOWER_BOUND = 2,
+    TT_UPPER_BOUND = 3
+} TTType;
+
 typedef struct {
-    char cle[300];
+    uint64_t cle;
     double score;
     int profondeur;
-    int occupee; /* 0 = case vide, 1 = utilisée */
+    uint8_t type;
+    uint8_t occupee;
+    CoupComplet meilleurCoup;
 } TTEntree;
 
 #define TT_TAILLE 65536
 static TTEntree table[TT_TAILLE];
 
-static unsigned long hashCle(const char *s) {
-    unsigned long h = 5381;
-    int c;
-    while ((c = (unsigned char)*s++)) h = ((h << 5) + h) + (unsigned long)c;
-    return h;
+static inline uint32_t indexTT(uint64_t cle) {
+    uint64_t h = cle ^ (cle >> 32);
+    h ^= h >> 16;
+    return (uint32_t)h & (TT_TAILLE - 1);
 }
 
 static void tableTranspositionReset(void) {
     memset(table, 0, sizeof(table));
 }
 
-static int tableTranspositionGet(const char *cle, double *score, int profondeurMin) {
-    unsigned long h = hashCle(cle) % TT_TAILLE;
-    TTEntree *e = &table[h];
-    if (e->occupee && strcmp(e->cle, cle) == 0 && e->profondeur >= profondeurMin) {
-        *score = e->score;
+static inline int coupsIdentiques(const CoupComplet *a, const CoupComplet *b) {
+    return a->x1 == b->x1 && a->z1 == b->z1 &&
+           a->x2 == b->x2 && a->z2 == b->z2 &&
+           a->info.prise == b->info.prise &&
+           a->info.px == b->info.px && a->info.pz == b->info.pz;
+}
+
+/*
+ * Recherche TT :
+ * - permet toujours de récupérer le meilleur coup pour l'ordre de recherche ;
+ * - n'utilise le score que si la profondeur demandée est couverte et que la
+ *   borne permet réellement une coupure ou donne un résultat exact.
+ */
+static int tableTranspositionProbe(uint64_t cle, int profondeur,
+                                   double alpha, double beta,
+                                   double *score, CoupComplet *meilleurCoup,
+                                   int *aMeilleurCoup) {
+    TTEntree *e = &table[indexTT(cle)];
+    if (!e->occupee || e->cle != cle) return 0;
+
+    if (meilleurCoup && aMeilleurCoup) {
+        *aMeilleurCoup = 0;
+        if (e->meilleurCoup.x1 >= 0) {
+            *meilleurCoup = e->meilleurCoup;
+            *aMeilleurCoup = 1;
+        }
+    }
+
+    if (e->profondeur < profondeur) return 0;
+
+    if (e->type == TT_EXACT) {
+        if (score) *score = e->score;
+        return 1;
+    }
+    if (e->type == TT_LOWER_BOUND && e->score >= beta) {
+        if (score) *score = e->score;
+        return 1;
+    }
+    if (e->type == TT_UPPER_BOUND && e->score <= alpha) {
+        if (score) *score = e->score;
         return 1;
     }
     return 0;
 }
 
-static void tableTranspositionSet(const char *cle, double score, int profondeur) {
-    unsigned long h = hashCle(cle) % TT_TAILLE;
-    TTEntree *e = &table[h];
-    strncpy(e->cle, cle, sizeof(e->cle) - 1);
-    e->cle[sizeof(e->cle) - 1] = '\0';
+static void tableTranspositionSet(uint64_t cle, double score, int profondeur,
+                                  TTType type, const CoupComplet *meilleurCoup) {
+    TTEntree *e = &table[indexTT(cle)];
+
+    /* Remplacer une entrée seulement si elle est vide ou si la nouvelle
+       recherche est au moins aussi profonde. On conserve ainsi les résultats
+       plus utiles lorsqu'il y a collision. */
+    if (e->occupee && e->cle == cle && e->profondeur > profondeur) return;
+
+    e->cle = cle;
     e->score = score;
     e->profondeur = profondeur;
+    e->type = (uint8_t)type;
     e->occupee = 1;
+    if (meilleurCoup) {
+        e->meilleurCoup = *meilleurCoup;
+    } else {
+        e->meilleurCoup = (CoupComplet){ .x1 = -1, .z1 = -1, .x2 = -1, .z2 = -1 };
+    }
 }
 
+/* ---------- Move ordering avancé ----------
+ *
+ * Ordre de priorité :
+ *   1. meilleur coup de la TT
+ *   2. nombre de prises (règle existante, priorité absolue)
+ *   3. killer moves (coups calmes ayant déjà provoqué une coupure)
+ *   4. history heuristic (coups calmes souvent utiles)
+ *
+ * Cette heuristique ne retire aucun coup et ne change aucune profondeur.
+ * Elle cherche simplement à présenter plus tôt les coups susceptibles de
+ * provoquer une coupure Alpha-Beta.
+ */
+#define MAX_PROFONDEUR_RECHERCHE 16
+#define HIST_X 10
+#define HIST_Z 10
+#define HIST_TAILLE (HIST_X * HIST_Z * HIST_X * HIST_Z)
 
-/* ---------- Tri des coups par nbPrises décroissant (Move Ordering), comme coups.sort(...) en JS ---------- */
+static unsigned int historiqueCoups[2][HIST_TAILLE];
+static CoupComplet killerCoups[MAX_PROFONDEUR_RECHERCHE + 1][2];
+static unsigned char killerValide[MAX_PROFONDEUR_RECHERCHE + 1][2];
+
+static inline int indexHistorique(const CoupComplet *c) {
+    return (((c->x1 * 10 + c->z1) * 10 + c->x2) * 10 + c->z2);
+}
+
+static inline int estCoupCalme(const CoupComplet *c) {
+    return !c->info.prise;
+}
+
+static void resetMoveOrdering(void) {
+    memset(historiqueCoups, 0, sizeof(historiqueCoups));
+    memset(killerValide, 0, sizeof(killerValide));
+}
+
+static inline int estKiller(const CoupComplet *c, int profondeur, int slot) {
+    return profondeur >= 0 && profondeur <= MAX_PROFONDEUR_RECHERCHE &&
+           killerValide[profondeur][slot] &&
+           coupsIdentiques(c, &killerCoups[profondeur][slot]);
+}
+
+static inline void enregistrerCoupKiller(const CoupComplet *c, int profondeur) {
+    if (!estCoupCalme(c) || profondeur < 0 || profondeur > MAX_PROFONDEUR_RECHERCHE) return;
+    if (killerValide[profondeur][0] && coupsIdentiques(c, &killerCoups[profondeur][0])) return;
+
+    killerCoups[profondeur][1] = killerCoups[profondeur][0];
+    killerValide[profondeur][1] = killerValide[profondeur][0];
+    killerCoups[profondeur][0] = *c;
+    killerValide[profondeur][0] = 1;
+}
+
+static inline void enregistrerHistorique(const CoupComplet *c, int estMax, int profondeur) {
+    if (!estCoupCalme(c)) return;
+    int idx = indexHistorique(c);
+    int side = estMax ? 1 : 0;
+    unsigned int bonus = (unsigned int)(profondeur + 1) * (unsigned int)(profondeur + 1);
+    unsigned int *h = &historiqueCoups[side][idx];
+    /* Saturation douce : évite tout débordement et garde les coups récents
+       compétitifs face aux anciens scores. */
+    if (*h > 1000000U - bonus) *h = 1000000U;
+    else *h += bonus;
+}
+
+static inline long long scoreOrdreCoup(const CoupComplet *c,
+                                       const CoupComplet *ttCoup, int aTT,
+                                       int estMax, int profondeur) {
+    /* Les captures maximales doivent rester devant les coups avec moins de
+       prises. Le poids est volontairement très supérieur aux heuristiques. */
+    long long score = (long long)c->info.nbPrises * 1000000000LL;
+
+    if (aTT && coupsIdentiques(c, ttCoup)) score += 900000000LL;
+    if (estKiller(c, profondeur, 0)) score += 200000000LL;
+    else if (estKiller(c, profondeur, 1)) score += 150000000LL;
+
+    if (estCoupCalme(c)) {
+        score += (long long)historiqueCoups[estMax ? 1 : 0][indexHistorique(c)];
+    }
+    return score;
+}
+
+static void ordonnerCoups(CoupComplet *coups, int nCoups,
+                          const CoupComplet *ttCoup, int aTT,
+                          int estMax, int profondeur) {
+    /* Insertion sort : MAX_COUPS_TOTAL reste petit et l'algorithme évite les
+       appels indirects de qsort() dans chaque nœud de recherche. */
+    for (int i = 1; i < nCoups; i++) {
+        CoupComplet courant = coups[i];
+        long long scoreCourant = scoreOrdreCoup(&courant, ttCoup, aTT, estMax, profondeur);
+        int j = i - 1;
+        while (j >= 0) {
+            long long scoreAvant = scoreOrdreCoup(&coups[j], ttCoup, aTT, estMax, profondeur);
+            if (scoreAvant >= scoreCourant) break;
+            coups[j + 1] = coups[j];
+            j--;
+        }
+        coups[j + 1] = courant;
+    }
+}
+
+/* ---------- Tri racine : on conserve l'ordre historique nbPrises ---------- */
 static int comparerCoupsNbPrises(const void *a, const void *b) {
     const CoupComplet *ca = a, *cb = b;
     return cb->info.nbPrises - ca->info.nbPrises;
 }
 
-static double quiescence(Plateau plat, double alpha, double beta, int estMax);
+static inline uint64_t cleTableTransposition(uint64_t hash, int estMax) {
+    return hash ^ zobristTour[estMax ? 1 : 0];
+}
+
+static double quiescence(Plateau plat, uint64_t hash, double alpha, double beta, int estMax);
 
 /* ---------- minimax : équivalent JS minimax ---------- */
-static double minimax(Plateau plat, int profondeur, int estMax, double alpha, double beta) {
-    char cle[300];
-    genererClePlateau(plat, cle, sizeof(cle));
+static double minimax(Plateau plat, uint64_t hash, int profondeur, int estMax, double alpha, double beta) {
+    const double alphaInitial = alpha;
+    const double betaInitial = beta;
 
     double cached;
-    if (tableTranspositionGet(cle, &cached, profondeur)) {
+    CoupComplet ttCoup = { .x1 = -1, .z1 = -1, .x2 = -1, .z2 = -1 };
+    int aTTCoup = 0;
+    uint64_t cleTT = cleTableTransposition(hash, estMax);
+    if (tableTranspositionProbe(cleTT, profondeur, alpha, beta,
+                                &cached, &ttCoup, &aTTCoup)) {
         return cached;
     }
 
-    if (profondeur <= 0) return quiescence(plat, alpha, beta, estMax);
+    if (profondeur <= 0) return quiescence(plat, hash, alpha, beta, estMax);
 
     int couleurIA = (couleurHumain == BLANC) ? NOIR : BLANC;
     int joueurVirtuel = estMax ? couleurIA : couleurHumain;
 
     CoupComplet coups[MAX_COUPS_TOTAL];
-    int nCoups = getTousLesCoupsPour(joueurVirtuel, plat, coups);
+    int nCoups = getTousLesCoupsPour(joueurVirtuel, plat, coups, &hash);
 
-    if (nCoups == 0) return estMax ? (-100000 + profondeur) : (100000 - profondeur);
+    if (nCoups == 0) {
+        double terminal = estMax ? (-100000 + profondeur) : (100000 - profondeur);
+        tableTranspositionSet(cleTT, terminal, profondeur, TT_EXACT, NULL);
+        return terminal;
+    }
 
-    qsort(coups, (size_t)nCoups, sizeof(CoupComplet), comparerCoupsNbPrises);
+    ordonnerCoups(coups, nCoups, &ttCoup, aTTCoup, estMax, profondeur);
 
     double evalFinale;
+    CoupComplet meilleurCoupLocal = coups[0];
 
     if (estMax) {
         double maxEval = -INFINITY;
         for (int i = 0; i < nCoups; i++) {
-            Plateau platSimule;
-            clonerPlateau(plat, platSimule);
-            appliquerCoupSimule(coups[i], platSimule);
+            UndoCoup undo;
+            makeMove(&coups[i], plat, &hash, &undo);
             int encoreDesPrises = coups[i].info.prise && (coups[i].info.nbPrises > 1);
-            double evalCoup = minimax(platSimule, profondeur - 1, encoreDesPrises, alpha, beta);
-            if (evalCoup > maxEval) maxEval = evalCoup;
+            double evalCoup = minimax(plat, hash, profondeur - 1, encoreDesPrises, alpha, beta);
+            unmakeMove(plat, &hash, &undo);
+
+            if (evalCoup > maxEval) {
+                maxEval = evalCoup;
+                meilleurCoupLocal = coups[i];
+            }
             if (evalCoup > alpha) alpha = evalCoup;
-            if (beta <= alpha) break;
+            if (beta <= alpha) {
+                enregistrerCoupKiller(&coups[i], profondeur);
+                enregistrerHistorique(&coups[i], estMax, profondeur);
+                break;
+            }
         }
         evalFinale = maxEval;
     } else {
         double minEval = INFINITY;
         for (int i = 0; i < nCoups; i++) {
-            Plateau platSimule;
-            clonerPlateau(plat, platSimule);
-            appliquerCoupSimule(coups[i], platSimule);
+            UndoCoup undo;
+            makeMove(&coups[i], plat, &hash, &undo);
             int encoreDesPrises = coups[i].info.prise && (coups[i].info.nbPrises > 1);
-            double evalCoup = minimax(platSimule, profondeur - 1, !encoreDesPrises, alpha, beta);
-            if (evalCoup < minEval) minEval = evalCoup;
+            double evalCoup = minimax(plat, hash, profondeur - 1, !encoreDesPrises, alpha, beta);
+            unmakeMove(plat, &hash, &undo);
+
+            if (evalCoup < minEval) {
+                minEval = evalCoup;
+                meilleurCoupLocal = coups[i];
+            }
             if (evalCoup < beta) beta = evalCoup;
-            if (beta <= alpha) break;
+            if (beta <= alpha) {
+                enregistrerCoupKiller(&coups[i], profondeur);
+                enregistrerHistorique(&coups[i], estMax, profondeur);
+                break;
+            }
         }
         evalFinale = minEval;
     }
 
-    tableTranspositionSet(cle, evalFinale, profondeur);
+    TTType type;
+    if (evalFinale <= alphaInitial) {
+        type = TT_UPPER_BOUND;
+    } else if (evalFinale >= betaInitial) {
+        type = TT_LOWER_BOUND;
+    } else {
+        type = TT_EXACT;
+    }
+
+    /* hash a été restauré par le dernier unmakeMove : c'est donc bien la clé
+       de la position courante, contrairement à l'ancienne version où la TT
+       pouvait être écrite avec une clé restaurée d'un contexte différent. */
+    tableTranspositionSet(cleTT, evalFinale, profondeur, type, &meilleurCoupLocal);
     return evalFinale;
 }
 
 /* ---------- quiescence : équivalent JS quiescence ---------- */
-static double quiescence(Plateau plat, double alpha, double beta, int estMax) {
+static double quiescence(Plateau plat, uint64_t hash, double alpha, double beta, int estMax) {
     double scoreValeur = evaluerPlateau(plat);
     if (estMax) {
         if (scoreValeur >= beta) return beta;
@@ -431,14 +743,14 @@ static double quiescence(Plateau plat, double alpha, double beta, int estMax) {
     int joueurVirtuel = estMax ? couleurIA : couleurHumain;
 
     CoupComplet tousCoups[MAX_COUPS_TOTAL];
-    int nTous = getTousLesCoupsPour(joueurVirtuel, plat, tousCoups);
+    int nTous = getTousLesCoupsPour(joueurVirtuel, plat, tousCoups, &hash);
 
     for (int i = 0; i < nTous; i++) {
         if (!tousCoups[i].info.prise) continue;
-        Plateau platSimule;
-        clonerPlateau(plat, platSimule);
-        appliquerCoupSimule(tousCoups[i], platSimule);
-        double evalCoup = quiescence(platSimule, alpha, beta, !estMax);
+        UndoCoup undo;
+        makeMove(&tousCoups[i], plat, &hash, &undo);
+        double evalCoup = quiescence(plat, hash, alpha, beta, !estMax);
+        unmakeMove(plat, &hash, &undo);
         if (estMax) {
             if (evalCoup > alpha) alpha = evalCoup;
             if (alpha >= beta) break;
@@ -454,10 +766,14 @@ static double quiescence(Plateau plat, double alpha, double beta, int estMax) {
 static int trouverMeilleurCoup(Plateau plateau, int joueurActuel, int profondeurMax, int couleurHumainParam,
                                 CoupComplet *meilleurCoupOut, double *meilleurScoreOut) {
     couleurHumain = couleurHumainParam;
+    initialiserZobrist();
     tableTranspositionReset();
+    resetMoveOrdering();
+
+    uint64_t hash = calculerHashZobrist(plateau);
 
     CoupComplet coups[MAX_COUPS_TOTAL];
-    int nCoups = getTousLesCoupsPour(joueurActuel, plateau, coups);
+    int nCoups = getTousLesCoupsPour(joueurActuel, plateau, coups, &hash);
     if (nCoups == 0) return 0;
 
     qsort(coups, (size_t)nCoups, sizeof(CoupComplet), comparerCoupsNbPrises);
@@ -479,11 +795,11 @@ static int trouverMeilleurCoup(Plateau plateau, int joueurActuel, int profondeur
     }
 
     for (int i = 0; i < nCoups; i++) {
-        Plateau platSimule;
-        clonerPlateau(plateau, platSimule);
-        appliquerCoupSimule(coups[i], platSimule);
+        UndoCoup undo;
+        makeMove(&coups[i], plateau, &hash, &undo);
         int encoreDesPrises = coups[i].info.prise && (coups[i].info.nbPrises > 1);
-        double score = minimax(platSimule, profondeurMax - 1, encoreDesPrises, -INFINITY, INFINITY);
+        double score = minimax(plateau, hash, profondeurMax - 1, encoreDesPrises, -INFINITY, INFINITY);
+        unmakeMove(plateau, &hash, &undo);
         if (score > meilleurScore) {
             meilleurScore = score;
             meilleurCoup = coups[i];
