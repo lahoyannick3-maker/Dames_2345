@@ -194,9 +194,27 @@ static int getTousLesCoupsPour(int couleur, Plateau plat, CoupComplet out[MAX_CO
         }
     }
 
+    /* Règle du bouffe maximum : si des prises existent, seules celles qui
+       capturent le plus grand nombre de pièces sont autorisées (comme côté
+       JS pour le joueur humain, cf. filtre sur maxPrises dans index.html).
+       Sans ce filtre, l'IA pouvait choisir une prise de 1 alors qu'une
+       prise de 2 (ou plus) était disponible, ce qui est illégal. */
+    int maxPrises = 0;
+    if (aUnePrise) {
+        for (int i = 0; i < nTous; i++) {
+            if (tous[i].info.prise && tous[i].info.nbPrises > maxPrises) {
+                maxPrises = tous[i].info.nbPrises;
+            }
+        }
+    }
+
     int n = 0;
     for (int i = 0; i < nTous; i++) {
-        if (!aUnePrise || tous[i].info.prise) out[n++] = tous[i];
+        if (!aUnePrise) {
+            out[n++] = tous[i];
+        } else if (tous[i].info.prise && tous[i].info.nbPrises == maxPrises) {
+            out[n++] = tous[i];
+        }
     }
     return n;
 }
