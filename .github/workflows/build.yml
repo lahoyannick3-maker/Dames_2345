@@ -33,7 +33,13 @@ jobs:
 
       - name: Générer moteur.js / moteur.wasm
         run: |
-          emcc wasm/moteur.c -O3 \
+          # Optimisation du moteur WASM :
+          # -O3    : optimisations LLVM/Binaryen déjà utilisées par la base
+          # -flto   : Link-Time Optimization, permet d''optimiser les fonctions
+          #           à travers l''ensemble du moteur lors de l''édition de liens
+          # -msimd128 : active WebAssembly SIMD. Le compilateur ne vectorise que
+          #             les portions qu''il peut réellement optimiser.
+          emcc wasm/moteur.c -O3 -flto -msimd128 \
             -o www/moteur.js \
             -s WASM=1 \
             -s MODULARIZE=1 \
