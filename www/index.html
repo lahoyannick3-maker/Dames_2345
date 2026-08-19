@@ -1749,6 +1749,13 @@ function ouvrirClavierInitiales(joueur, evt) {
     const clavier = document.getElementById('clavierVirtuelInitiales');
     if (!input || !clavier) return;
 
+    // Si on bascule d'un champ à l'autre sans fermer le clavier entre les
+    // deux (ex: J2 -> J1), le curseur de l'ancien champ reste actif et
+    // continue de clignoter tant qu'on ne le désactive pas explicitement.
+    if (joueurClavierInitialesActif && joueurClavierInitialesActif !== joueur) {
+        mettreAJourCurseurInitiales(joueurClavierInitialesActif, false);
+    }
+
     joueurClavierInitialesActif = joueur;
     initialiserClavierVirtuelInitiales();
 
