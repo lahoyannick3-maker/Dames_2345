@@ -30,6 +30,11 @@
 #define BLANC 0
 #define NOIR 1
 #define VIDE (-1)
+/* Case occupée par une pièce capturée plus tôt dans la même rafle (séquence
+ * de prises) mais pas encore réellement retirée : elle bloque le passage
+ * (on ne peut ni la traverser ni la re-capturer), sans être une case vide
+ * ni une pièce jouable. Miroir exact de CASE_CAPTUREE côté JS. */
+#define BLOQUE 2
 
 typedef struct {
     int8_t couleur;   /* BLANC, NOIR, ou VIDE */
@@ -187,7 +192,12 @@ static inline void makeMove(const CoupComplet *coup, Plateau plat, uint64_t *has
 
     plat[coup->x1][coup->z1] = (Case){ VIDE, 0 };
     if (undo->hasCapture) {
-        plat[coup->info.px][coup->info.pz] = (Case){ VIDE, 0 };
+        /* La pièce capturée reste "présente" (bloquante) tant que la rafle
+         * n'est pas terminée — voir CASE_CAPTUREE côté JS. unmakeMove()
+         * restaure de toute façon la vraie pièce via capturedBefore, donc
+         * ce marqueur ne fuit jamais en dehors de la branche de recherche
+         * en cours. */
+        plat[coup->info.px][coup->info.pz] = (Case){ BLOQUE, 0 };
     }
 
     plat[coup->x2][coup->z2] = pionOrigine;
@@ -233,6 +243,7 @@ static int getCoupsPion(int x, int z, Plateau plat, Coup out[MAX_COUPS]) {
             int nx2 = x + 2 * dx, nz2 = z + 2 * dz;
             if (dansPlateau(nx2, nz2) && plat[nx2][nz2].couleur == VIDE &&
                 plat[nx][nz].couleur != VIDE &&
+                plat[nx][nz].couleur != BLOQUE &&
                 plat[nx][nz].couleur != pion.couleur) {
                 out[n++] = (Coup){ .x = nx2, .z = nz2, .prise = 1, .px = nx, .pz = nz };
             }
@@ -258,6 +269,10 @@ static int getCoupsDame(int x, int z, Plateau plat, Coup out[MAX_COUPS]) {
                 } else {
                     out[n++] = (Coup){ .x = nx, .z = nz, .prise = 1, .px = prx, .pz = prz };
                 }
+            } else if (plat[nx][nz].couleur == BLOQUE) {
+                /* Pièce déjà capturée plus tôt dans la même rafle : bloque
+                 * encore le passage, ni traversable ni re-capturable. */
+                break;
             } else if (plat[nx][nz].couleur == pion.couleur) {
                 break;
             } else {
@@ -364,14 +379,14 @@ static double evaluerPlateau(Plateau plat) {
 
     for (int x = 0; x < TAILLE; x++)
         for (int z = 0; z < TAILLE; z++)
-            if (plat[x][z].couleur != VIDE) totalPions++;
+            if (plat[x][z].couleur != VIDE && plat[x][z].couleur != BLOQUE) totalPions++;
 
     int estFinDePartie = totalPions <= 7;
 
     for (int x = 0; x < TAILLE; x++) {
         for (int z = 0; z < TAILLE; z++) {
             Case p = plat[x][z];
-            if (p.couleur == VIDE) continue;
+            if (p.couleur == VIDE || p.couleur == BLOQUE) continue;
 
             double valeur = 0;
             if (p.estDame) {
@@ -845,6 +860,7 @@ static void depuisFlat(const int8_t *flat, Plateau plat) {
                 case 1:  plat[x][z] = (Case){ BLANC, 1 }; break;
                 case 2:  plat[x][z] = (Case){ NOIR, 0 };  break;
                 case 3:  plat[x][z] = (Case){ NOIR, 1 };  break;
+                case 4:  plat[x][z] = (Case){ BLOQUE, 0 }; break;
                 default: plat[x][z] = (Case){ VIDE, 0 };  break;
             }
         }
