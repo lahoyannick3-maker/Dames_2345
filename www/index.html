@@ -417,6 +417,66 @@ body { margin: 0; background: #1a1a2e; font-family: 'Segoe UI', sans-serif; over
     color: white;
 }
 
+/* Écran d'accueil des Paramètres : deux grandes options tactiles, pas
+   d'avatars visibles tant que l'utilisateur n'a pas choisi une catégorie. */
+.parametres-hub {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+}
+.hub-option {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    width: 100%;
+    padding: 18px 16px;
+    border-radius: 20px;
+    border: 1px solid rgba(255,255,255,0.12);
+    background: rgba(255,255,255,0.04);
+    color: white;
+    text-align: left;
+    cursor: pointer;
+}
+.hub-option:active { transform: scale(0.98); }
+.hub-option-icone { font-size: 1.8em; flex-shrink: 0; }
+.hub-option-texte { display: flex; flex-direction: column; gap: 2px; flex: 1; }
+.hub-option-titre { font-size: 1.02rem; font-weight: 800; }
+.hub-option-sous { font-size: 0.8rem; color: rgba(255,255,255,0.5); }
+.hub-option-chevron { font-size: 1.4em; color: rgba(255,255,255,0.35); }
+
+/* Bloc "Règles du jeu" : volontairement distinct des .profil-bloc (avatars),
+   avec un accent bleu plutôt que le rouge/rose utilisé pour les avatars. */
+.regle-bloc {
+    border: 1px solid rgba(78,115,235,0.25);
+    border-radius: 20px;
+    padding: 16px;
+    margin-bottom: 18px;
+    background: rgba(78,115,235,0.05);
+}
+.regle-option {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+}
+.regle-option-label {
+    font-size: 0.9rem;
+    font-weight: 700;
+}
+.regle-option-souslabel {
+    font-size: 0.78rem;
+    color: rgba(255,255,255,0.5);
+    margin-top: 2px;
+}
+.regle-bloc .type-toggle {
+    flex: 0 0 auto;
+    width: 168px;
+}
+.regle-bloc .type-toggle button.type-actif {
+    background: rgba(78,115,235,0.28);
+    border-color: #4364f7;
+}
+
 .emoji-grille {
     display: grid;
     grid-template-columns: repeat(6, 1fr);
@@ -831,6 +891,11 @@ body.jeu-actif .hud-el {
     max-width: min(86vw, 360px);
     box-sizing: border-box;
 }
+/* En mode humain vs humain, quand ce sont les Noirs (Joueur 2, assis en face)
+   qui commencent, la carte est retournée à 180° pour qu'il puisse la lire
+   depuis sa position — même logique que pour les badges avatars et le
+   message "Prise obligatoire". */
+.turn-message-retournee { transform: rotate(180deg); }
 .turn-message-avatar { font-size: 2.4em; margin-bottom: 10px; filter: drop-shadow(0 2px 6px rgba(0,0,0,0.6)); }
 .turn-message-text { color: white; font-size: 1.15em; font-weight: 700; margin-bottom: 6px; white-space: normal; line-height: 1.35; text-shadow: 0 2px 8px rgba(0,0,0,0.85), 0 0 16px rgba(0,0,0,0.6); }
 .turn-message-hint { color: rgba(255,255,255,0.75); font-size: 0.78em; text-transform: uppercase; letter-spacing: 1px; text-shadow: 0 2px 6px rgba(0,0,0,0.85); }
@@ -1089,9 +1154,32 @@ h1 {
     <div class="parametres-card" id="parametresCard">
         <div class="parametres-header">
             <h2 class="parametres-titre" id="parametresTitre">Avatars</h2>
-            <button class="btn-retour-parametres" onclick="fermerParametres()" aria-label="Retour">&#10005;</button>
+            <button class="btn-retour-parametres" onclick="clicRetourParametres()" aria-label="Retour">&#10005;</button>
         </div>
 
+        <!-- Écran d'accueil des Paramètres : deux options, sans afficher
+             directement les avatars (on ne veut pas forcément les voir/modifier
+             juste pour changer une règle comme "Qui commence ?"). -->
+        <div class="parametres-hub" id="hubParametres">
+            <button class="hub-option" onclick="ouvrirSousEcranParametres('avatars')">
+                <span class="hub-option-icone">🎭</span>
+                <span class="hub-option-texte">
+                    <span class="hub-option-titre">Avatars</span>
+                    <span class="hub-option-sous">Emoji, initiales, couleurs</span>
+                </span>
+                <span class="hub-option-chevron">›</span>
+            </button>
+            <button class="hub-option" onclick="ouvrirSousEcranParametres('regles')">
+                <span class="hub-option-icone">📜</span>
+                <span class="hub-option-texte">
+                    <span class="hub-option-titre">Règles du jeu</span>
+                    <span class="hub-option-sous">Qui commence la partie</span>
+                </span>
+                <span class="hub-option-chevron">›</span>
+            </button>
+        </div>
+
+        <div id="sousEcranAvatars">
         <!-- Profil Joueur 1 -->
         <div class="profil-bloc" id="profilBlocJ1">
             <div class="profil-titre">Joueur 1 (Blancs)</div>
@@ -1135,6 +1223,25 @@ h1 {
         </div>
 
         <div class="parametres-note">Joueur 2 sert uniquement en mode 2 joueurs. Contre l'IA, tu joues toujours avec l'avatar Joueur 1.</div>
+        </div>
+
+        <!-- Sous-écran "Règles du jeu" : catégorie de réglages totalement
+             indépendante des avatars, accessible sans jamais voir les
+             écrans de personnalisation. -->
+        <div id="sousEcranRegles" style="display:none;">
+            <div class="regle-bloc" id="blocRegleDebut">
+                <div class="regle-option">
+                    <div>
+                        <div class="regle-option-label">Qui commence ?</div>
+                        <div class="regle-option-souslabel">S'applique à la prochaine partie</div>
+                    </div>
+                    <div class="type-toggle">
+                        <button id="btnDebutBlanc" onclick="definirCouleurDebut('blanc')">⚪ Blancs</button>
+                        <button id="btnDebutNoir" onclick="definirCouleurDebut('noir')">⚫ Noirs</button>
+                    </div>
+                </div>
+            </div>
+        </div>
     </div>
 
     <!-- Clavier virtuel global : volontairement hors de parametres-card.
@@ -1169,7 +1276,7 @@ h1 {
 <div id="toastInfo" class="toast-info"></div>
 
 <div id="messageDebutTour" class="turn-message-overlay">
-    <div class="turn-message-card">
+    <div class="turn-message-card" id="turnMessageCard">
         <div class="turn-message-avatar" id="turnMessageIcon">&#9898;</div>
         <div class="turn-message-text" id="turnMessageText">Ce sont les Blancs qui commencent en premier</div>
         <div class="turn-message-hint">Touchez l'ecran pour commencer</div>
@@ -1233,7 +1340,7 @@ const MATRICE_TACTIQUE = [
 const SEUIL_ERREUR_PRISE = 6;
 const TAILLE = 10;
 const BLANC = 0xf5f5f5;
-const NOIR = 0x45454f;
+const NOIR = 0x1c1c1c;
 const CASE_BLANC = 0xdcc7a0;
 const CASE_NOIR = 0x7a4e2a;
 const SURBRILLANCE = 0x00ff88;
@@ -1247,6 +1354,16 @@ let caseSelectionnee = null;
 let coupsPossibles = [];
 let joueurActuel = 'blanc';
 let rafleEnCours = false;
+// Marqueur de case "capturée mais pas encore retirée" : tant qu'une rafle
+// (séquence de prises) n'est pas terminée, une pièce capturée doit rester
+// sur le plateau logique pour BLOQUER le passage (règle de la dame volante
+// officielle). Sans ça, une dame peut "faire demi-tour" et recapturer une
+// pièce qu'elle vient de dépasser dans l'autre sens, dans le même tour.
+// La case n'est réellement vidée (mise à 0) qu'à la toute fin de la rafle.
+const CASE_CAPTUREE = 'CAPTUREE';
+// Liste des cases marquées CASE_CAPTUREE pendant la rafle en cours, pour
+// pouvoir les vider pour de vrai une fois toute la séquence terminée.
+let casesCapturesEnAttente = [];
 let modeJeu = 'humain';
 let messageDebutActif = false;
 // Compteur pour la règle de nulle : nombre de coups consécutifs sans prise
@@ -1284,6 +1401,31 @@ const PROFIL_DEFAUT_J2 = { type: 'emoji', value: '👤', couleur: '#1e293b' };
 let profilJ1 = { ...PROFIL_DEFAUT_J1 };
 let profilJ2 = { ...PROFIL_DEFAUT_J2 };
 let avatarIAActuel = AVATARS_IA.faible[0];
+
+// Réglage "Qui commence ?" : 'blanc' (comportement historique, par défaut)
+// ou 'noir' si l'utilisateur l'a explicitement activé dans Paramètres.
+// Persisté indépendamment des profils, pour survivre à la fermeture de l'app.
+let couleurDebutPartie = 'blanc';
+
+function chargerReglesPartie() {
+    try {
+        const val = localStorage.getItem('dame_regle_debut');
+        couleurDebutPartie = (val === 'noir') ? 'noir' : 'blanc';
+    } catch (e) { couleurDebutPartie = 'blanc'; }
+}
+
+function definirCouleurDebut(couleur) {
+    couleurDebutPartie = (couleur === 'noir') ? 'noir' : 'blanc';
+    try { localStorage.setItem('dame_regle_debut', couleurDebutPartie); } catch (e) { /* stockage indisponible */ }
+    construireToggleDebut();
+}
+
+function construireToggleDebut() {
+    const btnBlanc = document.getElementById('btnDebutBlanc');
+    const btnNoir = document.getElementById('btnDebutNoir');
+    if (btnBlanc) btnBlanc.classList.toggle('type-actif', couleurDebutPartie === 'blanc');
+    if (btnNoir) btnNoir.classList.toggle('type-actif', couleurDebutPartie === 'noir');
+}
 
 function chargerProfils() {
     try {
@@ -1323,21 +1465,35 @@ function appliquerAvatarSurBadge(avatarDiv, iconSpan, profil) {
 // origineParametres : d'où l'écran a été ouvert ('menu' ou 'jeu'), pour savoir
 // où revenir en fermant. joueurUniqueParametres : si défini ('j1' ou 'j2'),
 // seul ce bloc profil est affiché (édition d'un seul avatar depuis le jeu).
+// sousEcranParametres : depuis le hub du menu, quelle catégorie est affichée
+// ('avatars', 'regles', ou null = le hub lui-même avec ses deux options).
 let origineParametres = 'menu';
 let joueurUniqueParametres = null;
+let sousEcranParametres = null;
 
 function ouvrirParametres() {
     origineParametres = 'menu';
     joueurUniqueParametres = null;
+    sousEcranParametres = null;
     chargerProfils();
     construireEcranProfil('j1');
     construireEcranProfil('j2');
-    appliquerVisibiliteBlocsProfil();
+    chargerReglesPartie();
+    construireToggleDebut();
+    appliquerAffichageParametres();
     const carte = document.getElementById('parametresCard');
     if (carte) carte.classList.remove('parametres-retournee');
     document.getElementById('menuPrincipal').classList.remove('menu-visible');
     const ecranParametres = document.getElementById('ecranParametres');
     if (ecranParametres) { ecranParametres.scrollTop = 0; ecranParametres.classList.add('parametres-visible'); }
+}
+
+// Depuis le hub du menu : ouvre la catégorie choisie ('avatars' ou 'regles').
+function ouvrirSousEcranParametres(nom) {
+    sousEcranParametres = nom;
+    appliquerAffichageParametres();
+    const ecranParametres = document.getElementById('ecranParametres');
+    if (ecranParametres) ecranParametres.scrollTop = 0;
 }
 
 // Ouvre l'écran paramètres pendant une partie en cours, limité à l'avatar
@@ -1347,12 +1503,13 @@ function ouvrirParametres() {
 function ouvrirParametresJoueur(joueur) {
     origineParametres = 'jeu';
     joueurUniqueParametres = joueur;
+    // Ce flux vient d'un tap sur un avatar en pleine partie : on saute le hub
+    // et on va directement sur l'avatar concerné, comme avant.
+    sousEcranParametres = 'avatars';
     chargerProfils();
     construireEcranProfil('j1');
     construireEcranProfil('j2');
-    appliquerVisibiliteBlocsProfil();
-    const titre = document.getElementById('parametresTitre');
-    if (titre) titre.textContent = (joueur === 'j1') ? 'Ton avatar' : 'Avatar Joueur 2';
+    appliquerAffichageParametres();
     const estJ2Partie = modeJeu === 'humain' && joueur === 'j2';
     const carte = document.getElementById('parametresCard');
     if (carte) carte.classList.toggle('parametres-retournee', estJ2Partie);
@@ -1367,17 +1524,45 @@ function ouvrirParametresJoueur(joueur) {
     }
 }
 
-function appliquerVisibiliteBlocsProfil() {
+function appliquerAffichageParametres() {
+    const hub = document.getElementById('hubParametres');
+    const ecranAvatars = document.getElementById('sousEcranAvatars');
+    const ecranRegles = document.getElementById('sousEcranRegles');
     const blocJ1 = document.getElementById('profilBlocJ1');
     const blocJ2 = document.getElementById('profilBlocJ2');
+    const titre = document.getElementById('parametresTitre');
+
+    // Édition d'un seul avatar en pleine partie (tap sur un badge) : on saute
+    // le hub, jamais de Règles ici (ce réglage n'a de sens qu'avant une
+    // nouvelle partie, pas en cours de partie).
     if (origineParametres === 'jeu' && joueurUniqueParametres) {
+        if (hub) hub.style.display = 'none';
+        if (ecranRegles) ecranRegles.style.display = 'none';
+        if (ecranAvatars) ecranAvatars.style.display = '';
         if (blocJ1) blocJ1.style.display = (joueurUniqueParametres === 'j1') ? '' : 'none';
         if (blocJ2) blocJ2.style.display = (joueurUniqueParametres === 'j2') ? '' : 'none';
-    } else {
+        if (titre) titre.textContent = (joueurUniqueParametres === 'j1') ? 'Ton avatar' : 'Avatar Joueur 2';
+        return;
+    }
+
+    // Depuis le menu : hub à deux options, ou l'une des deux catégories.
+    if (sousEcranParametres === 'avatars') {
+        if (hub) hub.style.display = 'none';
+        if (ecranAvatars) ecranAvatars.style.display = '';
+        if (ecranRegles) ecranRegles.style.display = 'none';
         if (blocJ1) blocJ1.style.display = '';
         if (blocJ2) blocJ2.style.display = '';
-        const titre = document.getElementById('parametresTitre');
         if (titre) titre.textContent = 'Avatars';
+    } else if (sousEcranParametres === 'regles') {
+        if (hub) hub.style.display = 'none';
+        if (ecranAvatars) ecranAvatars.style.display = 'none';
+        if (ecranRegles) ecranRegles.style.display = '';
+        if (titre) titre.textContent = 'Règles du jeu';
+    } else {
+        if (hub) hub.style.display = '';
+        if (ecranAvatars) ecranAvatars.style.display = 'none';
+        if (ecranRegles) ecranRegles.style.display = 'none';
+        if (titre) titre.textContent = 'Paramètres';
     }
 }
 
@@ -1429,6 +1614,24 @@ function fermerParametres() {
     }
 
     document.getElementById('menuPrincipal').classList.add('menu-visible');
+}
+
+// Bouton retour de l'écran Paramètres (croix en haut, et bouton matériel
+// Android). Si une catégorie a été ouverte depuis le hub du menu, un premier
+// retour revient au hub plutôt que de tout fermer d'un coup — cohérent avec
+// la logique déjà en place pour le clavier virtuel (un cran à la fois).
+function clicRetourParametres() {
+    const clavierOuvert = document.getElementById('clavierVirtuelInitiales')?.classList.contains('clavier-visible');
+    if (clavierOuvert) {
+        fermerClavierInitiales();
+        return;
+    }
+    if (origineParametres === 'menu' && sousEcranParametres) {
+        sousEcranParametres = null;
+        appliquerAffichageParametres();
+        return;
+    }
+    fermerParametres();
 }
 
 // ============================================================
@@ -2083,19 +2286,29 @@ function animer() {
     }
 
     requestAnimationFrame(animer);
-    const deltaTime = horloge.getDelta();
+    // Plafonne le deltaTime : après un micro-freeze (GC, pic CPU, changement
+    // d'onglet), horloge.getDelta() peut renvoyer une valeur énorme, ce qui
+    // ferait "téléporter" le pion d'un coup au lieu de glisser. On limite à
+    // 100ms, soit l'équivalent d'une frame à 10 fps.
+    const deltaTime = Math.min(horloge.getDelta(), 0.1);
     besoinRendu = false;
     
     if (pionEnMouvement) {
         // Initialiser le suivi du temps propre à ce mouvement si ce n'est pas fait
         if (pionEnMouvement.userData.tempsEcoule === undefined) {
             pionEnMouvement.userData.tempsEcoule = 0;
-            // Calculer la distance totale pour adapter la durée (plus c'est loin, plus ça prend un poil plus de temps)
+            // Calculer la distance totale pour une vitesse constante et réaliste
+            // (unités de plateau par seconde) plutôt qu'un choix binaire entre
+            // 2 durées fixes qui donnait une vitesse incohérente selon les cases.
             let dx = cibleMouvement.x - pionEnMouvement.userData.oldX;
             let dz = cibleMouvement.z - pionEnMouvement.userData.oldZ;
             let distance = Math.sqrt(dx * dx + dz * dz);
-            // Durée de l'animation fixe ou proportionnelle (ex: 0.25 seconde par saut)
-            pionEnMouvement.userData.dureeTotale = distance > 1.5 ? 0.40 : 0.25; 
+            const VITESSE_UNITES_PAR_SEC = 4.2; // ajuste la vitesse globale ici
+            const DUREE_MIN = 0.16, DUREE_MAX = 0.45;
+            pionEnMouvement.userData.dureeTotale = Math.min(
+                Math.max(distance / VITESSE_UNITES_PAR_SEC, DUREE_MIN),
+                DUREE_MAX
+            );
         }
 
         // Avancer dans le temps de l'animation
@@ -2103,8 +2316,10 @@ function animer() {
         // Calculer le ratio d'avancement entre 0.0 et 1.0
         let t = Math.min(pionEnMouvement.userData.tempsEcoule / pionEnMouvement.userData.dureeTotale, 1.0);
 
-        // Lissage du facteur t (Smoothstep) pour un effet de démarrage et freinage en douceur (Ease-in-out)
-        let tLisse = t * t * (3 - 2 * t);
+        // Easing asymétrique façon "élan physique" : démarrage un peu plus
+        // franc, freinage plus doux à l'arrivée (au lieu d'un smoothstep
+        // symétrique qui donnait un mouvement plus mécanique).
+        let tLisse = 1 - Math.pow(1 - t, 3);
 
         // Interpolation de la position X et Z (Mouvement fluide au sol)
         pionEnMouvement.position.x = pionEnMouvement.userData.oldX + (cibleMouvement.x - pionEnMouvement.userData.oldX) * tLisse;
@@ -2204,7 +2419,7 @@ function positionnerMessageObligatoire() {
     const msg = document.getElementById('messageObligatoire');
     if (!msg) return;
     if (modeJeu === 'humain' && joueurActuel === 'noir') {
-        msg.style.top = '40%';
+        msg.style.top = '50%';
         msg.style.transform = 'translate(-50%, -50%) rotate(180deg)';
     } else {
         msg.style.top = '50%';
@@ -2289,7 +2504,7 @@ function selectionnerPion(pion) {
 
 function onResize() {
     const aspect = window.innerWidth / window.innerHeight;
-    const frustumSize = 12;
+    const frustumSize = 10.6;
     if (aspect > 1) {
         camera.left = -frustumSize * aspect / 2; camera.right = frustumSize * aspect / 2;
         camera.top = frustumSize / 2; camera.bottom = -frustumSize / 2;
@@ -2300,9 +2515,11 @@ function onResize() {
     
     // Garder la caméra du bon côté lors d'un redimensionnement ou d'une rotation d'écran
     if (typeof couleurHumain !== 'undefined' && modeJeu !== 'humain' && couleurHumain === 'noir') {
-        camera.position.set(4.5, 10, -4.5);
+        camera.position.set(4.5, 15, 4.5);
+        camera.up.set(0, 0, 1);
     } else {
-        camera.position.set(4.5, 10, 13.5);
+        camera.position.set(4.5, 15, 4.5);
+        camera.up.set(0, 0, -1);
     }
     camera.lookAt(4.5, 0, 4.5);
     if (controls) {
@@ -2364,10 +2581,11 @@ function aUnePriseDisponible(couleur, plat) {
 function init() {
     scene = new THREE.Scene();
     scene.background = new THREE.Color(0x1a1a2e);
-    scene.fog = new THREE.Fog(0x1a1a2e, 15, 30);
+    scene.fog = new THREE.Fog(0x1a1a2e, 19, 40);
 
     camera = new THREE.OrthographicCamera(1, 1, 1, 1, 0.1, 1000);
-camera.position.set(4.5, 10, 13.5); // Force la caméra du côté des Blancs (en bas) au démarrage
+camera.position.set(4.5, 15, 4.5); // Vue verticale pure, uniforme quel que soit l'angle
+camera.up.set(0, 0, -1);
 camera.lookAt(4.5, 0, 4.5);
     renderer = new THREE.WebGLRenderer({antialias: true});
     renderer.setSize(window.innerWidth, window.innerHeight);
@@ -2383,14 +2601,16 @@ camera.lookAt(4.5, 0, 4.5);
     controls.target.set(4.5, 0, 4.5);
     controls.enableDamping = true;
     controls.enableRotate = false;
+    controls.enableZoom = false;
+    controls.enablePan = false;
     controls.minZoom = 0.65; controls.maxZoom = 2;
-    // Zoom/pan tactile déclenche un rendu à la demande (utile même si la
+    // Pan tactile déclenche un rendu à la demande (utile même si la
     // boucle est arrêtée, ex: juste après être revenu d'un écran figé).
     controls.addEventListener('change', demanderRendu);
 
     scene.add(new THREE.AmbientLight(0xffffff, 0.5));
     const dirLight = new THREE.DirectionalLight(0xffffff, 1);
-    dirLight.position.set(5, 15, 5);
+    dirLight.position.set(4.5, 15, 4.5);
     dirLight.castShadow = true;
     dirLight.shadow.mapSize.width = 1024; dirLight.shadow.mapSize.height = 1024;
     dirLight.shadow.camera.left = -10; dirLight.shadow.camera.right = 10;
@@ -2409,7 +2629,7 @@ camera.lookAt(4.5, 0, 4.5);
     // Configure seulement la caméra et la taille du renderer, sans demander
     // de frame 3D pendant le splash/menu.
     const aspectInitial = window.innerWidth / window.innerHeight;
-    const frustumSizeInitial = 12;
+    const frustumSizeInitial = 10.6;
     if (aspectInitial > 1) {
         camera.left = -frustumSizeInitial * aspectInitial / 2;
         camera.right = frustumSizeInitial * aspectInitial / 2;
@@ -2553,16 +2773,24 @@ function deplacerPion(x, z) {
 }
 
 function creerPlateau() {
-    const tableGeo = new THREE.BoxGeometry(14, 0.5, 14);
-    const tableMat = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 0.8, metalness: 0.1 });
+    const tableGeo = new THREE.BoxGeometry(60, 0.5, 60);
+    const tableMat = new THREE.MeshStandardMaterial({
+        color: 0x2b1a15, roughness: 0.8, metalness: 0.1
+    });
     const table = new THREE.Mesh(tableGeo, tableMat);
-    table.position.set(4.5, -0.5, 4.5); table.receiveShadow = true;
+    table.position.set(4.5, -0.35, 4.5); table.receiveShadow = true;
     scene.add(table);
 
-    const plateauGeo = new THREE.BoxGeometry(10.2, 0.3, 10.2);
+    const cadreGeo = new THREE.BoxGeometry(13, 0.3, 13);
+    const cadreMat = new THREE.MeshStandardMaterial({ color: 0x3e2723, roughness: 0.8, metalness: 0.1 });
+    const cadreMesh = new THREE.Mesh(cadreGeo, cadreMat);
+    cadreMesh.position.set(4.5, -0.20, 4.5); cadreMesh.receiveShadow = true;
+    scene.add(cadreMesh);
+
+    const plateauGeo = new THREE.BoxGeometry(11.4, 0.15, 11.4);
     const plateauMat = new THREE.MeshStandardMaterial({ color: 0x5d4037, roughness: 0.6, metalness: 0.2 });
     const plateauMesh = new THREE.Mesh(plateauGeo, plateauMat);
-    plateauMesh.position.set(4.5, -0.15, 4.5); plateauMesh.receiveShadow = true;
+    plateauMesh.position.set(4.5, -0.075, 4.5); plateauMesh.receiveShadow = true;
     scene.add(plateauMesh);
 
     for(let x = 0; x < TAILLE; x++) {
@@ -2586,7 +2814,7 @@ function creerPlateau() {
 function clonerPlateau(plateauOriginal) {
     return plateauOriginal.map(colonne => 
         colonne.map(caseVal => {
-            if (caseVal === 0 || caseVal === null) return caseVal;
+            if (caseVal === 0 || caseVal === null || caseVal === CASE_CAPTUREE) return caseVal;
             return { couleur: caseVal.couleur, estDame: caseVal.estDame };
         })
     );
@@ -2603,7 +2831,7 @@ function getTousLesCoups(x, z, plat) {
         const plateauTemp = clonerPlateau(plat);
         plateauTemp[coup.x][coup.z] = plateauTemp[x][z];
         plateauTemp[x][z] = 0;
-        plateauTemp[coup.pionPris.x][coup.pionPris.z] = 0;
+        plateauTemp[coup.pionPris.x][coup.pionPris.z] = CASE_CAPTUREE;
 
         const autresPrises = getTousLesCoups(coup.x, coup.z, plateauTemp).filter(c => c.prise);
         
@@ -2633,7 +2861,7 @@ function getCoupsPion(x, z, plat) {
             let nx = x + dx, nz = z + dz;
             let nx2 = x + 2*dx, nz2 = z + 2*dz;
             if (dansPlateau(nx2, nz2) && plat[nx2][nz2] === 0 &&
-                plat[nx][nz] && plat[nx][nz] !== 0 &&
+                plat[nx][nz] && plat[nx][nz] !== 0 && plat[nx][nz] !== CASE_CAPTUREE &&
                 plat[nx][nz].couleur !== pion.couleur) {
                 coups.push({x: nx2, z: nz2, prise: true, pionPris: {x: nx, z: nz}});
             }
@@ -2657,6 +2885,11 @@ function getCoupsDame(x, z, plat) {
                 } else {
                     coups.push({x: nx, z: nz, prise: true, pionPris: pionRencontre});
                 }
+            } else if (plat[nx][nz] === CASE_CAPTUREE) {
+                // Pièce déjà capturée plus tôt dans la même rafle : elle
+                // bloque encore le passage, on ne peut ni la traverser ni
+                // la recapturer.
+                break;
             } else if (plat[nx][nz].couleur === pion.couleur) {
                 break;
             } else {
@@ -2707,7 +2940,8 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
             scene.remove(pionPris);
             pions3D = pions3D.filter(p => p !== pionPris);
         }
-        plateau[coupInfo.pionPris.x][coupInfo.pionPris.z] = 0;
+        plateau[coupInfo.pionPris.x][coupInfo.pionPris.z] = CASE_CAPTUREE;
+        casesCapturesEnAttente.push({x: coupInfo.pionPris.x, z: coupInfo.pionPris.z});
 
         if (pionMesh.userData.cheminRestant) {
             pionMesh.userData.cheminRestant.shift();
@@ -2715,7 +2949,7 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
         if (pionMesh.userData.cheminRestant && pionMesh.userData.cheminRestant.length > 0) {
             const suite = pionMesh.userData.cheminRestant[0];
             rafleEnCours = true; animationEnCours = false; pionSelectionne = pionMesh;
-            programmerTimerJeu('rafleSuite', () => jouerCoup(xDest, zDest, suite.x, suite.z, suite), 400);
+            programmerTimerJeu('rafleSuite', () => jouerCoup(xDest, zDest, suite.x, suite.z, suite), 130);
             return;
         }
     }
@@ -2747,6 +2981,16 @@ function terminerLogiqueCoup(pionMesh, coupInfo) {
             nouveauPion.userData.estDame = true;
             pions3D.push(nouveauPion);
         }
+    }
+
+    // La rafle (s'il y en avait une) est vraiment terminée ici : on peut
+    // maintenant vider pour de vrai les cases des pièces capturées, qui
+    // jusque-là ne faisaient que bloquer le passage (CASE_CAPTUREE) pour
+    // empêcher la dame de revenir en arrière capturer une pièce déjà
+    // dépassée pendant la même séquence.
+    if (casesCapturesEnAttente.length > 0) {
+        casesCapturesEnAttente.forEach(c => { plateau[c.x][c.z] = 0; });
+        casesCapturesEnAttente = [];
     }
 
     rafleEnCours = false; animationEnCours = false; 
@@ -2815,7 +3059,8 @@ function encoderPlateauPourWasm(plat) {
         for (let z = 0; z < TAILLE; z++) {
             const p = plat[x][z];
             let v = -1;
-            if (p && p !== 0) v = (p.couleur === 'blanc' ? 0 : 2) + (p.estDame ? 1 : 0);
+            if (p === CASE_CAPTUREE) v = 4; // case bloquée : pièce capturée pas encore retirée dans la rafle en cours
+            else if (p && p !== 0) v = (p.couleur === 'blanc' ? 0 : 2) + (p.estDame ? 1 : 0);
             flat[x * TAILLE + z] = v;
         }
     }
@@ -2973,9 +3218,10 @@ function tourIA() {
     // lourd (et même un coup joué par l'IA) pouvait s'exécuter en pleine partie humaine.
     if (modeJeu === 'humain') return;
 
-    // Quand l'IA commence la partie (elle joue les Blancs), le message "Ce sont les
-    // Blancs qui commencent en premier" est encore affiché. Un humain le ferme en
-    // touchant l'écran avant de jouer ; l'IA ne peut pas taper, donc on le ferme ici
+    // Quand l'IA commence la partie (Blancs par défaut, ou Noirs si le réglage
+    // "Qui commence ?" l'a activé), le message "Ce sont les ... qui commencent
+    // en premier" est encore affiché. Un humain le ferme en touchant l'écran
+    // avant de jouer ; l'IA ne peut pas taper, donc on le ferme ici
     // automatiquement, avant qu'elle ne joue son coup.
     if (messageDebutActif) fermerMessageDebut();
 
@@ -3146,14 +3392,26 @@ function updateUI() {
 function afficherMessageDebut() {
     const overlay = document.getElementById('messageDebutTour');
     if (!overlay) return;
+    const carte = document.getElementById('turnMessageCard');
     const icone = document.getElementById('turnMessageIcon');
     const texte = document.getElementById('turnMessageText');
 
-    // La partie commence toujours avec les Blancs
-    const libelle = 'Ce sont les Blancs qui commencent en premier';
+    // La couleur qui commence dépend du réglage "Qui commence ?" (Blancs par
+    // défaut, ou Noirs si l'utilisateur l'a activé dans Paramètres).
+    const libelle = (couleurDebutPartie === 'noir')
+        ? 'Ce sont les Noirs qui commencent en premier'
+        : 'Ce sont les Blancs qui commencent en premier';
 
     if (texte) texte.textContent = libelle;
     if (icone) icone.textContent = joueurActuel === 'blanc' ? '⚪' : '⚫';
+
+    // En mode humain vs humain, si ce sont les Noirs (Joueur 2, assis en
+    // face) qui commencent, on retourne la carte à 180° pour qu'il puisse
+    // la lire depuis sa position — même logique que pour les badges avatars
+    // et le message "Prise obligatoire".
+    if (carte) {
+        carte.classList.toggle('turn-message-retournee', modeJeu === 'humain' && couleurDebutPartie === 'noir');
+    }
 
     overlay.style.display = 'flex';
     messageDebutActif = true;
@@ -3319,7 +3577,7 @@ function resetPartie(reconstruire = true) {
 
     jeuInitialise = false; animationEnCours = false; pionEnMouvement = null;
     pionSelectionne = null; caseSelectionnee = null; coupsPossibles = [];
-    joueurActuel = 'blanc'; rafleEnCours = false; pionQuiRafle = null; compteurErreurs = 0;
+    joueurActuel = couleurDebutPartie; rafleEnCours = false; pionQuiRafle = null; compteurErreurs = 0;
     compteurCoupsNuls = 0; aucunCoupJoue = true;
     document.getElementById('ecranVictoire').style.display = 'none';
     arreterConfettis();
@@ -3369,9 +3627,11 @@ function resetPartie(reconstruire = true) {
             afficherMessageDebut();
 
             if (modeJeu !== 'humain' && couleurHumain === 'noir') {
-                camera.position.set(4.5, 10, -4.5);
+                camera.position.set(4.5, 15, 4.5);
+                camera.up.set(0, 0, 1);
             } else {
-                camera.position.set(4.5, 10, 13.5);
+                camera.position.set(4.5, 15, 4.5);
+                camera.up.set(0, 0, -1);
             }
             camera.lookAt(4.5, 0, 4.5);
             controls.target.set(4.5, 0, 4.5);
@@ -3384,8 +3644,12 @@ function resetPartie(reconstruire = true) {
                 }
 
                 jeuInitialise = true;
-                if (modeJeu !== 'humain' && couleurHumain === 'noir') {
-                    joueurActuel = 'blanc';
+                // Si c'est à l'IA de jouer le tout premier coup (couleur de
+                // départ différente de la couleur de l'humain), on lance son
+                // tour. joueurActuel a déjà été fixé à couleurDebutPartie par
+                // resetPartie(), donc cette condition couvre les deux cas :
+                // IA en Blancs (comportement historique) et IA en Noirs.
+                if (modeJeu !== 'humain' && joueurActuel !== couleurHumain) {
                     tourIA();
                 }
             }, 500);
@@ -3439,12 +3703,12 @@ function initBoutonRetourAndroid() {
         const clavierOuvert = document.getElementById('clavierVirtuelInitiales')?.classList.contains('clavier-visible');
         const enPartie = document.body.classList.contains('jeu-actif');
 
-        // Même logique que le clavier système : le premier retour masque
-        // d'abord le clavier, puis un second retour ferme les paramètres.
+        // Même logique progressive que le bouton X en haut de l'écran :
+        // clavier -> hub (si une catégorie était ouverte depuis le menu) -> fermeture.
         if (parametresOuvert && clavierOuvert) {
             fermerClavierInitiales();
         } else if (parametresOuvert) {
-            fermerParametres();
+            clicRetourParametres();
         } else if (enPartie) {
             demanderConfirmation('Voulez-vous quitter la partie ?', 'Tu quittes maintenant, la partie en cours sera perdue.', '🏳️', retourMenu);
         } else {
@@ -3455,6 +3719,7 @@ function initBoutonRetourAndroid() {
 
  // Lancement des fonctions principales
 chargerProfils();
+chargerReglesPartie();
 initialiserClavierVirtuelInitiales();
 init();
 arreterBoucle();
