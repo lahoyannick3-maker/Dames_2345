@@ -2470,6 +2470,15 @@ function getMousePosition(event) {
 
 function selectionnerPion(pion) {
   if (!pion || animationEnCours) return;
+
+  // Deuxième appui sur le même pion : désélectionner et retirer
+  // les cases de destination actuellement surlignées.
+  if (pionSelectionne === pion) {
+    pionSelectionne = null;
+    effacerSurbrillance();
+    return;
+  }
+
   effacerSurbrillance();
   
   let coups = getTousLesCoups(pion.userData.x, pion.userData.z, plateau);
