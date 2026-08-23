@@ -346,25 +346,17 @@ static int getTousLesCoupsPour(int couleur, Plateau plat, CoupComplet out[MAX_CO
         }
     }
 
-    /* Règle du bouffe maximum : si des prises existent, seules celles qui
-       capturent le plus grand nombre de pièces sont autorisées (comme côté
-       JS pour le joueur humain, cf. filtre sur maxPrises dans index.html).
-       Sans ce filtre, l'IA pouvait choisir une prise de 1 alors qu'une
-       prise de 2 (ou plus) était disponible, ce qui est illégal. */
-    int maxPrises = 0;
-    if (aUnePrise) {
-        for (int i = 0; i < nTous; i++) {
-            if (tous[i].info.prise && tous[i].info.nbPrises > maxPrises) {
-                maxPrises = tous[i].info.nbPrises;
-            }
-        }
-    }
-
+    /* Prise obligatoire SANS bouffe maximum : si des prises existent, tous
+       les coups de capture sont autorisés (quelle que soit la longueur de
+       la chaîne), et seuls les coups sans prise sont exclus. Le joueur (ou
+       l'IA) reste forcé de capturer, mais choisit librement lequel des
+       chemins de capture il joue, sans qu'on lui impose celui qui prend le
+       plus de pièces. nbPrises reste calculé dans getTousLesCoups() et
+       continue de servir ailleurs (tri, heuristique IA, détection de suite
+       de rafle) : seul ce filtre par maxPrises a été retiré ici. */
     int n = 0;
     for (int i = 0; i < nTous; i++) {
-        if (!aUnePrise) {
-            out[n++] = tous[i];
-        } else if (tous[i].info.prise && tous[i].info.nbPrises == maxPrises) {
+        if (!aUnePrise || tous[i].info.prise) {
             out[n++] = tous[i];
         }
     }
@@ -865,6 +857,167 @@ static void depuisFlat(const int8_t *flat, Plateau plat) {
             }
         }
     }
+}
+
+/* Inverse de depuisFlat() : encode le plateau interne vers le format plat
+   -1/0/1/2/3/4 partagé avec JS/Kotlin. */
+static void versFlat(Plateau plat, int8_t *flat) {
+    for (int x = 0; x < TAILLE; x++) {
+        for (int z = 0; z < TAILLE; z++) {
+            Case c = plat[x][z];
+            int8_t v;
+            if (c.couleur == BLANC)      v = c.estDame ? 1 : 0;
+            else if (c.couleur == NOIR)  v = c.estDame ? 3 : 2;
+            else if (c.couleur == BLOQUE) v = 4;
+            else                          v = -1;
+            flat[x * TAILLE + z] = v;
+        }
+    }
+}
+
+/* ==========================================================
+   PONT NATIF — RÈGLES DU JEU (humain ET IA, source unique)
+   ==========================================================
+   Ces 3 fonctions remplacent la copie JS des règles (getCoupsPion,
+   getCoupsDame, getTousLesCoups, getTousLesCoupsPour, jouerCoup,
+   terminerLogiqueCoup) qui existait en double dans index.html.
+   Elles réutilisent telles quelles les fonctions internes du moteur
+   déjà validées par l'IA : aucune règle n'est ré-écrite ici.
+   ========================================================== */
+
+/* Position de départ, encodée en plat. outFlat doit pointer vers 100 octets. */
+EMSCRIPTEN_KEEPALIVE
+void natif_plateauInitial(int8_t *outFlat) {
+    Plateau plat;
+    plateauInitial(plat);
+    versFlat(plat, outFlat);
+}
+
+/* Tous les coups légaux d'une couleur, prise obligatoire déjà appliquée
+   (bouffe maximum RETIRÉE : si une capture existe, tous les chemins de
+   capture sont légaux, pas seulement le(s) plus long(s) — le joueur choisit
+   librement lequel jouer). Chaque coup est le PREMIER saut d'une éventuelle
+   rafle ; nbPrises indique la longueur totale de la chaîne pour permettre à
+   l'UI de comprendre qu'une rafle continuera après ce saut.
+   Retourne un JSON: [{"x1":.,"z1":.,"x2":.,"z2":.,"prise":.,"nbPrises":.}, ...] */
+EMSCRIPTEN_KEEPALIVE
+char *natif_coupsPour(int8_t *flat, int couleur) {
+    static char buffer[4096];
+    Plateau plat;
+    depuisFlat(flat, plat);
+
+    uint64_t hash = 0; /* jetable : make/unmake reste cohérent quel que soit le point de départ */
+    CoupComplet coups[MAX_COUPS_TOTAL];
+    int n = getTousLesCoupsPour(couleur, plat, coups, &hash);
+
+    int pos = snprintf(buffer, sizeof(buffer), "[");
+    for (int i = 0; i < n && pos < (int)sizeof(buffer) - 96; i++) {
+        pos += snprintf(buffer + pos, sizeof(buffer) - (size_t)pos,
+            "%s{\"x1\":%d,\"z1\":%d,\"x2\":%d,\"z2\":%d,\"prise\":%d,\"nbPrises\":%d}",
+            i == 0 ? "" : ",",
+            coups[i].x1, coups[i].z1, coups[i].x2, coups[i].z2,
+            coups[i].info.prise, coups[i].info.nbPrises);
+    }
+    pos += snprintf(buffer + pos, sizeof(buffer) - (size_t)pos, "]");
+    return buffer;
+}
+
+/* Applique UN SEUL saut (x1,z1)->(x2,z2) sur le plateau donné et renvoie le
+   nouveau plateau + les infos nécessaires à l'UI. Si le saut est une prise
+   et que la pièce a encore des prises disponibles depuis sa nouvelle case,
+   la rafle continue : la pièce capturée reste marquée BLOQUE (comme côté
+   recherche IA) plutôt que d'être réellement retirée, et "suite" contient
+   les prochains sauts possibles. Rappeler natif_jouerCoup avec le plateau
+   renvoyé pour jouer le saut suivant de la même pièce. Quand "suite" est
+   vide, la rafle (ou le coup simple) est terminée : les cases BLOQUE en
+   attente sont nettoyées et la promotion éventuelle est appliquée — dans
+   cet ordre précis, comme terminerLogiqueCoup() côté JS (une dame n'est
+   promue qu'à la toute fin de sa rafle, jamais en cours de route).
+   Retourne un JSON:
+   {"plateau":[100 int],"prise":.,"px":.,"pz":.,"devientDame":.,
+    "suite":[{"x2":.,"z2":.}, ...]} , ou {"erreur":true} si le coup demandé
+   n'est pas dans la liste des coups légaux depuis (x1,z1). */
+EMSCRIPTEN_KEEPALIVE
+char *natif_jouerCoup(int8_t *flat, int x1, int z1, int x2, int z2) {
+    static char buffer[1024];
+    Plateau plat;
+    depuisFlat(flat, plat);
+
+    Case pionOrigine = plat[x1][z1];
+    if (pionOrigine.couleur == VIDE || pionOrigine.couleur == BLOQUE) {
+        snprintf(buffer, sizeof(buffer), "{\"erreur\":true}");
+        return buffer;
+    }
+
+    uint64_t hash = 0;
+    Coup coupsDepuisOrigine[MAX_COUPS];
+    int nOrigine = getTousLesCoups(x1, z1, plat, coupsDepuisOrigine, &hash);
+
+    Coup coupJoue;
+    int trouve = 0;
+    for (int i = 0; i < nOrigine; i++) {
+        if (coupsDepuisOrigine[i].x == x2 && coupsDepuisOrigine[i].z == z2) {
+            coupJoue = coupsDepuisOrigine[i];
+            trouve = 1;
+            break;
+        }
+    }
+    if (!trouve) {
+        snprintf(buffer, sizeof(buffer), "{\"erreur\":true}");
+        return buffer;
+    }
+
+    plat[x2][z2] = pionOrigine;
+    plat[x1][z1] = (Case){ VIDE, 0 };
+    if (coupJoue.prise) {
+        /* Bloquante tant que la rafle n'est pas terminée, jamais retirée ici. */
+        plat[coupJoue.px][coupJoue.pz] = (Case){ BLOQUE, 0 };
+    }
+
+    /* Prochains sauts possibles depuis la nouvelle case, avec la pièce
+       encore SANS promotion (comme côté JS : on vérifie la suite avant de
+       transformer en dame). */
+    int nSuite = 0;
+    Coup suite[MAX_COUPS];
+    if (coupJoue.prise) {
+        Coup tousDepuisDest[MAX_COUPS];
+        int nTous = getTousLesCoups(x2, z2, plat, tousDepuisDest, &hash);
+        for (int i = 0; i < nTous; i++) {
+            if (tousDepuisDest[i].prise) suite[nSuite++] = tousDepuisDest[i];
+        }
+    }
+
+    int devientDame = 0;
+    if (nSuite == 0) {
+        /* Rafle (ou coup simple) réellement terminée : nettoyage des cases
+           BLOQUE en attente, puis promotion si applicable. */
+        for (int x = 0; x < TAILLE; x++)
+            for (int z = 0; z < TAILLE; z++)
+                if (plat[x][z].couleur == BLOQUE) plat[x][z] = (Case){ VIDE, 0 };
+
+        if (!pionOrigine.estDame) {
+            if (pionOrigine.couleur == BLANC && z2 == 0) { plat[x2][z2].estDame = 1; devientDame = 1; }
+            if (pionOrigine.couleur == NOIR  && z2 == 9) { plat[x2][z2].estDame = 1; devientDame = 1; }
+        }
+    }
+
+    int8_t flatOut[100];
+    versFlat(plat, flatOut);
+
+    int pos = snprintf(buffer, sizeof(buffer),
+        "{\"plateau\":[");
+    for (int i = 0; i < 100; i++) {
+        pos += snprintf(buffer + pos, sizeof(buffer) - (size_t)pos, "%s%d", i == 0 ? "" : ",", flatOut[i]);
+    }
+    pos += snprintf(buffer + pos, sizeof(buffer) - (size_t)pos,
+        "],\"prise\":%d,\"px\":%d,\"pz\":%d,\"devientDame\":%d,\"suite\":[",
+        coupJoue.prise, coupJoue.px, coupJoue.pz, devientDame);
+    for (int i = 0; i < nSuite; i++) {
+        pos += snprintf(buffer + pos, sizeof(buffer) - (size_t)pos,
+            "%s{\"x2\":%d,\"z2\":%d}", i == 0 ? "" : ",", suite[i].x, suite[i].z);
+    }
+    snprintf(buffer + pos, sizeof(buffer) - (size_t)pos, "]}");
+    return buffer;
 }
 
 /* Seul point d'entrée exposé au JS. Une seule requête à la fois (le Worker
