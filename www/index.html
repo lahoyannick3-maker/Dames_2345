@@ -869,6 +869,50 @@ body.jeu-actif .hud-el {
     text-align: center;
 }
 
+/* Titre du mode de jeu choisi (Deux joueurs / IA Faible / Moyen / Normal /
+   Expert), visible en permanence pendant la partie. Centré JUSTE SOUS la
+   rangée du haut (boutons Quitter/Nouvelle partie à gauche, badge adverse à
+   droite) pour ne jamais les chevaucher, même sur un écran étroit. Purement
+   informatif : ne capte aucun tap (pointer-events: none). Mêmes couleurs que
+   les boutons du menu pour qu'on reconnaisse le mode d'un coup d'oeil. */
+.mode-titre {
+    top: 76px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 5px 16px 5px 6px;
+    border-radius: 50px;
+    border: 1px solid rgba(255,255,255,0.18);
+    color: white;
+    font-weight: 700;
+    font-size: 0.85rem;
+    letter-spacing: 0.3px;
+    white-space: nowrap;
+    max-width: calc(100vw - 152px);
+    overflow: hidden;
+    text-overflow: ellipsis;
+    box-shadow: 0 6px 16px rgba(0,0,0,0.35);
+    text-shadow: 0 1px 3px rgba(0,0,0,0.35);
+}
+body.jeu-actif .mode-titre { pointer-events: none; }
+.mode-titre-icone {
+    width: 26px; height: 26px;
+    display: flex; align-items: center; justify-content: center;
+    background: rgba(255,255,255,0.18);
+    border-radius: 50%;
+    font-size: 0.95rem;
+    flex-shrink: 0;
+}
+/* Même traitement que l'icône du bouton "Deux joueurs" du menu : glyphe blanc pur */
+.mode-titre--humain .mode-titre-icone { filter: brightness(0) invert(1); opacity: 0.9; }
+.mode-titre--humain  { background: linear-gradient(135deg, #0052d4, #4364f7); border-color: rgba(67, 100, 247, 0.5); }
+.mode-titre--faible  { background: linear-gradient(135deg, #059669, #10b981); border-color: rgba(16, 185, 129, 0.5); }
+.mode-titre--moyen   { background: linear-gradient(135deg, #d97706, #f59e0b); border-color: rgba(245, 158, 11, 0.5); }
+.mode-titre--normal  { background: linear-gradient(135deg, #ea580c, #f97316); border-color: rgba(249, 115, 22, 0.5); }
+.mode-titre--expert  { background: linear-gradient(135deg, #dc2626, #ef4444); border-color: rgba(239, 68, 68, 0.5); }
+
 /* Message central affiche au debut de chaque partie */
 .turn-message-overlay {
     display: none;
@@ -1261,6 +1305,11 @@ h1 {
 <div id="gameControls" class="hud-el game-controls">
     <button class="icon-btn" id="btnQuitter" onclick="demanderConfirmation('Voulez-vous quitter la partie ?', 'Tu quittes maintenant, la partie en cours sera perdue.', '🏳️', retourMenu)" title="Quitter" aria-label="Quitter">&#10005;</button>
     <button class="icon-btn" id="btnNouvellePartie" onclick="demanderConfirmation('On repart de zéro ?', 'La partie actuelle sera remise à zéro.', '🔄', () => resetPartie())" title="Nouvelle partie" aria-label="Nouvelle partie">&#8635;</button>
+</div>
+
+<div id="titreMode" class="hud-el mode-titre mode-titre--humain" aria-live="polite">
+    <span class="mode-titre-icone" id="titreModeIcone">&#128101;</span>
+    <span id="titreModeTexte">Deux joueurs</span>
 </div>
 
 <div id="avatarTopRight" class="hud-el player-badge player-badge-top" onclick="onClicAvatarBadge('top')">
@@ -2360,8 +2409,28 @@ function animer() {
 }
 
 
+// Libellé + icône affichés en permanence pendant la partie pour rappeler le
+// mode choisi. Mêmes icônes/noms que les boutons du menu principal.
+const TITRES_MODE = {
+    humain: { icone: '👥', texte: 'Deux joueurs' },
+    faible: { icone: '🤖', texte: 'IA Faible' },
+    moyen:  { icone: '🧠', texte: 'IA Moyen' },
+    normal: { icone: '🔥', texte: 'IA Normal' },
+    expert: { icone: '👑', texte: 'IA Expert' }
+};
+
+function mettreAJourTitreMode() {
+    const conteneur = document.getElementById('titreMode');
+    const def = TITRES_MODE[modeJeu];
+    if (!conteneur || !def) return;
+    conteneur.className = 'hud-el mode-titre mode-titre--' + modeJeu;
+    document.getElementById('titreModeIcone').textContent = def.icone;
+    document.getElementById('titreModeTexte').textContent = def.texte;
+}
+
 function demarrerJeu(mode) {
     modeJeu = mode;
+    mettreAJourTitreMode();
 
     // Chaque sélection de mode depuis le menu est une partie neuve.
     couleurHumain = 'blanc';
@@ -3039,9 +3108,14 @@ function finDeTour() {
 let iaWorker = null;
 let iaWorkerBlobUrl = null;
 let iaRequestId = 0;
+// Vrai entre l'envoi d'une requête au Worker et la réception de SA réponse.
+// Sert à savoir s'il faut tuer le Worker (calcul lourd encore en cours) quand
+// on réinitialise la partie, pour qu'un ancien calcul ne bloque pas le suivant.
+let iaCalculEnCours = false;
 
 function detruireIAWorker() {
     iaRequestId++; // invalide immédiatement toute réponse encore en transit
+    iaCalculEnCours = false;
 
     if (iaWorker) {
         iaWorker.onmessage = null;
@@ -3104,7 +3178,7 @@ function creerIAWorker() {
         let dernierRequestId = null;
 
         self.onmessage = async function(e) {
-            const { plateauPlat, joueurActuel, modeJeu, couleurHumain, requestId } = e.data;
+            const { plateauPlat, joueurActuel, modeJeu, couleurHumain, xImpose, zImpose, requestId } = e.data;
             dernierRequestId = requestId;
 
             try {
@@ -3116,8 +3190,8 @@ function creerIAWorker() {
 
                 const resultJson = Module.ccall(
                     'wasm_calculerMeilleurCoup', 'string',
-                    ['array', 'number', 'number', 'number'],
-                    [plateauPlat, codeJoueur, profondeurMax, codeHumain]
+                    ['array', 'number', 'number', 'number', 'number', 'number'],
+                    [plateauPlat, codeJoueur, profondeurMax, codeHumain, xImpose, zImpose]
                 );
                 const res = JSON.parse(resultJson);
 
@@ -3161,8 +3235,14 @@ function creerIAWorker() {
         const { requestId, meilleurCoup, aucunCoup, erreur } = e.data;
 
         // Réponse obsolète : la partie a changé de mode/état pendant le calcul
-        // (ex: retour au menu ou nouvelle partie humaine entre-temps). On l'ignore.
-        if (requestId !== iaRequestId || modeJeu === 'humain') return;
+        // (ex: retour au menu ou nouvelle partie entre-temps). On l'ignore.
+        if (requestId !== iaRequestId) return;
+        iaCalculEnCours = false;
+        if (modeJeu === 'humain') return;
+
+        // Garde-fou : l'IA ne joue JAMAIS pendant le tour de l'humain. Si la
+        // réponse arrive alors que le tour a changé, elle est périmée.
+        if (joueurActuel === couleurHumain) return;
 
         if (erreur) {
             console.error('Erreur du moteur IA (WASM) :', erreur);
@@ -3189,6 +3269,8 @@ function creerIAWorker() {
         // Attendre 600ms pour que le joueur voie où l'IA va jouer, puis déplacer le pion
         programmerTimerJeu('coupIA', () => {
             animationEnCours = false;
+            // Le tour a pu changer pendant les 600 ms d'attente : dans ce cas le coup est périmé.
+            if (modeJeu === 'humain' || joueurActuel === couleurHumain) return;
             jouerCoup(meilleurCoup.x1, meilleurCoup.z1, meilleurCoup.x2, meilleurCoup.z2, meilleurCoup.info);
         }, 600);
     };
@@ -3227,6 +3309,11 @@ function tourIA() {
     // lourd (et même un coup joué par l'IA) pouvait s'exécuter en pleine partie humaine.
     if (modeJeu === 'humain') return;
 
+    // Garde-fou : ne jamais jouer à la place de l'humain. Un timer 'tourIA' en
+    // retard (ou rappelé par erreur) pendant le tour de l'humain ferait sinon
+    // calculer et jouer un coup pour SA couleur.
+    if (joueurActuel === couleurHumain) return;
+
     // Quand l'IA commence la partie (Blancs par défaut, ou Noirs si le réglage
     // "Qui commence ?" l'a activé), le message "Ce sont les ... qui commencent
     // en premier" est encore affiché. Un humain le ferme en touchant l'écran
@@ -3240,12 +3327,28 @@ function tourIA() {
 
     creerIAWorker();
     iaRequestId++;
+    iaCalculEnCours = true;
     const plateauPlat = encoderPlateauPourWasm(plateau);
+
+    // Rafle en cours : SEUL le pion qui vient de capturer a le droit de
+    // continuer la séquence (comme pour l'humain avec pionQuiRafle). Sans ça,
+    // le moteur voyait les captures de tous les pions de l'IA et pouvait en
+    // jouer un autre en plein milieu du tour = l'IA jouait deux fois de suite.
+    // Pendant une rafle de l'IA, pionSelectionne est fixé par terminerLogiqueCoup
+    // et ses coordonnées userData.x/z sont déjà celles de sa case d'arrivée.
+    let xImpose = -1, zImpose = -1;
+    if (rafleEnCours && pionSelectionne) {
+        xImpose = pionSelectionne.userData.x;
+        zImpose = pionSelectionne.userData.z;
+    }
+
     iaWorker.postMessage({
         plateauPlat,
         joueurActuel,
         modeJeu,
         couleurHumain,
+        xImpose,
+        zImpose,
         requestId: iaRequestId
     }, [plateauPlat.buffer]); // transfert zéro-copie du buffer vers le Worker
 }
@@ -3597,8 +3700,15 @@ function resetPartie(reconstruire = true) {
     if (debutOverlay) debutOverlay.style.display = 'none';
     messageDebutActif = false;
 
-    // Toute réinitialisation invalide les anciens timers de la partie.
-    if (!reconstruire) annulerTousLesTimersJeu();
+    // Toute réinitialisation invalide les anciens timers de la partie ET tout
+    // calcul IA encore en cours. Avant, seule la version "retour au menu"
+    // (reconstruire = false) le faisait : en appuyant sur "Nouvelle partie"
+    // pendant que l'IA réfléchissait ou s'animait, un ancien coup IA (timers
+    // 'tourIA'/'coupIA'/'rafleSuite' ou réponse du Worker) tombait dans la
+    // NOUVELLE partie, décalait le tour et l'IA jouait deux fois de suite.
+    annulerTousLesTimersJeu();
+    if (iaCalculEnCours) detruireIAWorker(); // arrête aussi le calcul lourd en cours
+    else iaRequestId++;                      // au minimum, invalide toute réponse en transit
 
     // Au menu, aucune reconstruction du plateau 3D.
     if (!reconstruire) return;
