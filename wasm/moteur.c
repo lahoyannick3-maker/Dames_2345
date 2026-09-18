@@ -771,6 +771,7 @@ static double quiescence(Plateau plat, uint64_t hash, double alpha, double beta,
 
 /* ---------- trouverMeilleurCoup : équivalent de la boucle du Worker (creerIAWorker.onmessage) ---------- */
 static int trouverMeilleurCoup(Plateau plateau, int joueurActuel, int profondeurMax, int couleurHumainParam,
+                                int xImpose, int zImpose,
                                 CoupComplet *meilleurCoupOut, double *meilleurScoreOut) {
     couleurHumain = couleurHumainParam;
     initialiserZobrist();
@@ -782,6 +783,24 @@ static int trouverMeilleurCoup(Plateau plateau, int joueurActuel, int profondeur
     CoupComplet coups[MAX_COUPS_TOTAL];
     int nCoups = getTousLesCoupsPour(joueurActuel, plateau, coups, &hash);
     if (nCoups == 0) return 0;
+
+    /* Rafle en cours : le pion qui vient de capturer (en xImpose/zImpose) est
+       le SEUL autorisé à jouer la suite de la séquence. Sans ce filtre, le
+       moteur voyait toutes les captures de tous les pions et pouvait changer
+       de pion en plein milieu d'un tour, ce qui revenait à jouer deux fois de
+       suite. (-1/-1 = pas de rafle en cours, aucune contrainte.) */
+    if (xImpose >= 0 && zImpose >= 0) {
+        int nFiltres = 0;
+        for (int i = 0; i < nCoups; i++) {
+            if (coups[i].x1 == xImpose && coups[i].z1 == zImpose) {
+                coups[nFiltres++] = coups[i];
+            }
+        }
+        /* Filet de sécurité : si (état incohérent) le pion imposé n'a aucun
+           coup, on garde la liste complète plutôt que de déclarer à tort
+           "aucun coup" (ce qui ferait perdre la partie à l'IA). */
+        if (nFiltres > 0) nCoups = nFiltres;
+    }
 
     qsort(coups, (size_t)nCoups, sizeof(CoupComplet), comparerCoupsNbPrises);
 
@@ -1024,9 +1043,12 @@ char *natif_jouerCoup(int8_t *flat, int x1, int z1, int x2, int z2) {
    JS ne fait qu'un appel par tour, comme l'ancien code JS). Le résultat est
    renvoyé en JSON dans un buffer statique — suffisant ici car Emscripten
    copie immédiatement la chaîne côté JS (ccall avec returnType 'string')
-   avant tout appel suivant. */
+   avant tout appel suivant.
+   xImpose/zImpose : case du pion qui doit obligatoirement continuer une rafle
+   en cours (-1/-1 s'il n'y a pas de rafle en cours). */
 EMSCRIPTEN_KEEPALIVE
-char *wasm_calculerMeilleurCoup(int8_t *flat, int joueurActuel, int profondeurMax, int couleurHumainParam) {
+char *wasm_calculerMeilleurCoup(int8_t *flat, int joueurActuel, int profondeurMax, int couleurHumainParam,
+                                int xImpose, int zImpose) {
     static char buffer[160];
 
     Plateau plateau;
@@ -1034,7 +1056,7 @@ char *wasm_calculerMeilleurCoup(int8_t *flat, int joueurActuel, int profondeurMa
 
     CoupComplet meilleurCoup;
     double meilleurScore;
-    int ok = trouverMeilleurCoup(plateau, joueurActuel, profondeurMax, couleurHumainParam, &meilleurCoup, &meilleurScore);
+    int ok = trouverMeilleurCoup(plateau, joueurActuel, profondeurMax, couleurHumainParam, xImpose, zImpose, &meilleurCoup, &meilleurScore);
 
     if (!ok) {
         snprintf(buffer, sizeof(buffer), "{\"aucunCoup\":true}");
@@ -1067,7 +1089,7 @@ int main(int argc, char **argv) {
     CoupComplet meilleurCoup;
     double meilleurScore;
     /* L'IA joue les noirs (couleurHumain = BLANC), les noirs jouent en premier */
-    int ok = trouverMeilleurCoup(plateau, NOIR, profondeurMax, BLANC, &meilleurCoup, &meilleurScore);
+    int ok = trouverMeilleurCoup(plateau, NOIR, profondeurMax, BLANC, -1, -1, &meilleurCoup, &meilleurScore);
     clock_t t1 = clock();
 
     if (!ok) {
